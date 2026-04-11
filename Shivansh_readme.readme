@@ -1,0 +1,12 @@
+gdelt -> mine
+rss -> others
+twitter -> none
+
+Installation -:
+ run it inside sanky directory or dataingestion requirement text
+# pip install psycopg2-binary
+
+
+sanky installation complete and redis embedding done on online db access
+Raj scrapper is giving some empty string some links
+
