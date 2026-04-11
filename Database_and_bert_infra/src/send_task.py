@@ -1,4 +1,4 @@
-from src.worker import extraction_task
+from worker import extraction_task
 import time
 def test_pipeline():
     # A list of test cases to verify different parts of your engine

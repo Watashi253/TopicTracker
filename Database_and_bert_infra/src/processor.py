@@ -1,9 +1,9 @@
 import numpy as np
 from sqlalchemy.orm import Session
-from src.database import SessionLocal
-from src.models import Article, TopicTimeline
-from src.extractor import extract_article_data
-from src.embeddings import get_text_embedding # Real BERT
+from database import SessionLocal
+from models import Article, TopicTimeline
+from extractor import extract_article_data
+from embeddings import get_text_embedding # Real BERT
 
 # --- SEMANTIC DEDUPLICATION ---
 def is_semantic_duplicate(db: Session, new_vector, threshold=0.90):

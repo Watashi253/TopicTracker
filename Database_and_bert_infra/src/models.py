@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, Text, TIMESTAMP, Float, ForeignKey, Index
 from pgvector.sqlalchemy import Vector
-from src.database import Base
+from database import Base
 import datetime
 
 class Article(Base):
