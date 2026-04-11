@@ -17,7 +17,7 @@ type Article = {
   metadata: Record<string, string>
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "")
 
 const SOURCES = [
   { key: "all",       label: "All Sources" },
