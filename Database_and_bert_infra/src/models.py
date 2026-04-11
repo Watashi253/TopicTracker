@@ -14,6 +14,7 @@ class Article(Base):
     vector = Column(Vector(384))
     summary = Column(Text)
     credibility_score = Column(Float)
+    cluster_id = Column(Integer, nullable=True)
     created_at = Column(TIMESTAMP, default=datetime.datetime.utcnow)
 
     __table_args__ = (
