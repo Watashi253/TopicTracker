@@ -5,7 +5,6 @@ export default function DashboardPage() {
     <div className="p-8">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-2xl font-bold">Topic Tracker</h1>
-        <UserButton afterSignOutUrl="/" />
       </div>
       <p>Welcome to your dashboard!</p>
     </div>
