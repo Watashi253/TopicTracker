@@ -1,25 +1,25 @@
-import { Article } from "../dashboard/page"
-
-const SOURCE_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  bbc:       { bg: "bg-red-100",    text: "text-red-800",    label: "BBC" },
-  aljazeera: { bg: "bg-green-100",  text: "text-green-800",  label: "Al Jazeera" },
-  reuters:   { bg: "bg-amber-100",  text: "text-amber-800",  label: "Reuters" },
-  ap:        { bg: "bg-blue-100",   text: "text-blue-800",   label: "AP News" },
-  gdelt:     { bg: "bg-indigo-100", text: "text-indigo-800", label: "GDELT" },
+const SOURCE_STYLES = {
+  bbc: { bg: "bg-red-100", text: "text-red-800", label: "BBC" },
+  aljazeera: { bg: "bg-green-100", text: "text-green-800", label: "Al Jazeera" },
+  reuters: { bg: "bg-amber-100", text: "text-amber-800", label: "Reuters" },
+  ap: { bg: "bg-blue-100", text: "text-blue-800", label: "AP News" },
+  gdelt: { bg: "bg-indigo-100", text: "text-indigo-800", label: "GDELT" },
 }
 
-function formatDate(iso: string | null): string {
+function formatDate(iso) {
   if (!iso) return ""
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",
-    day:   "numeric",
-    year:  "numeric",
+    day: "numeric",
+    year: "numeric",
   })
 }
 
-export default function NewsCard({ article }: { article: Article }) {
+export default function NewsCard({ article }) {
   const style = SOURCE_STYLES[article.source_name] ?? {
-    bg: "bg-gray-100", text: "text-gray-700", label: article.source_name,
+    bg: "bg-gray-100",
+    text: "text-gray-700",
+    label: article.source_name,
   }
 
   return (

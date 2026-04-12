@@ -3,40 +3,26 @@
 import { useEffect, useState } from "react"
 import NewsCard from "../components/NewsCard"
 
-export type Article = {
-  source_type: string
-  source_name: string
-  url: string
-  title: string
-  snippet: string | null
-  author: string | null
-  published_at: string | null
-  fetched_at: string
-  raw_score: number | null
-  language: string | null
-  metadata: Record<string, string>
-}
-
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 
 const RSS_SOURCES = [
-  { key: "all",       label: "All RSS" },
-  { key: "bbc",       label: "BBC" },
+  { key: "all", label: "All RSS" },
+  { key: "bbc", label: "BBC" },
   { key: "aljazeera", label: "Al Jazeera" },
-  { key: "reuters",   label: "Reuters" },
-  { key: "ap",        label: "AP News" },
+  { key: "reuters", label: "Reuters" },
+  { key: "ap", label: "AP News" },
 ]
 
 const GDELT_TIMESPANS = [
-  { key: "1day",   label: "24 h" },
-  { key: "1week",  label: "1 week" },
+  { key: "1day", label: "24 h" },
+  { key: "1week", label: "1 week" },
   { key: "1month", label: "1 month" },
 ]
 
 const GDELT_SORTS = [
   { key: "HybridRel", label: "Relevance" },
-  { key: "DateDesc",  label: "Latest" },
-  { key: "ToneDesc",  label: "Tone" },
+  { key: "DateDesc", label: "Latest" },
+  { key: "ToneDesc", label: "Tone" },
 ]
 
 function SkeletonCard() {
@@ -64,22 +50,19 @@ function SkeletonCard() {
 }
 
 export default function DashboardPage() {
-  const [articles, setArticles]           = useState<Article[]>([])
-  const [loading, setLoading]             = useState(true)
-  const [error, setError]                 = useState<string | null>(null)
+  const [articles, setArticles] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
-  // RSS state
-  const [activeSource, setActiveSource]   = useState("all")
-  const [search, setSearch]               = useState("")
+  const [activeSource, setActiveSource] = useState("all")
+  const [search, setSearch] = useState("")
 
-  // GDELT state
-  const [mode, setMode]                   = useState<"rss" | "gdelt">("rss")
-  const [gdeltQuery, setGdeltQuery]       = useState("")
-  const [gdeltInput, setGdeltInput]       = useState("")
+  const [mode, setMode] = useState("rss")
+  const [gdeltQuery, setGdeltQuery] = useState("")
+  const [gdeltInput, setGdeltInput] = useState("")
   const [gdeltTimespan, setGdeltTimespan] = useState("1week")
-  const [gdeltSort, setGdeltSort]         = useState("HybridRel")
+  const [gdeltSort, setGdeltSort] = useState("HybridRel")
 
-  // ── RSS fetch ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (mode !== "rss") return
     const controller = new AbortController()
@@ -95,7 +78,7 @@ export default function DashboardPage() {
         const res = await fetch(endpoint, { signal: controller.signal })
         if (!res.ok) throw new Error(`Server returned ${res.status}`)
         setArticles(await res.json())
-      } catch (e: unknown) {
+      } catch (e) {
         if (e instanceof Error && e.name === "AbortError") return
         setError("Could not load articles. Make sure the backend is running on port 8000.")
       } finally {
@@ -107,7 +90,6 @@ export default function DashboardPage() {
     return () => controller.abort()
   }, [mode, activeSource])
 
-  // ── GDELT fetch ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (mode !== "gdelt" || !gdeltQuery.trim()) return
     const controller = new AbortController()
@@ -117,9 +99,9 @@ export default function DashboardPage() {
       setError(null)
       try {
         const params = new URLSearchParams({
-          query:    gdeltQuery,
-          limit:    "30",
-          sort:     gdeltSort,
+          query: gdeltQuery,
+          limit: "30",
+          sort: gdeltSort,
           timespan: gdeltTimespan,
           language: "English",
         })
@@ -128,7 +110,7 @@ export default function DashboardPage() {
         })
         if (!res.ok) throw new Error(`Server returned ${res.status}`)
         setArticles(await res.json())
-      } catch (e: unknown) {
+      } catch (e) {
         if (e instanceof Error && e.name === "AbortError") return
         setError("GDELT fetch failed. Make sure the backend is running.")
       } finally {
@@ -140,7 +122,6 @@ export default function DashboardPage() {
     return () => controller.abort()
   }, [mode, gdeltQuery, gdeltTimespan, gdeltSort])
 
-  // ── Filtered view for RSS search box ────────────────────────────────────
   const filtered = articles.filter((a) => {
     if (mode === "gdelt" || !search.trim()) return true
     const q = search.toLowerCase()
@@ -159,8 +140,6 @@ export default function DashboardPage() {
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-
-      {/* Page header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Live News Feed</h1>
         <p className="mt-1 text-sm text-gray-500">
@@ -168,10 +147,12 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      {/* Mode toggle — RSS vs GDELT */}
       <div className="mb-5 flex gap-2">
         <button
-          onClick={() => { setMode("rss"); setArticles([]); }}
+          onClick={() => {
+            setMode("rss")
+            setArticles([])
+          }}
           className={`rounded-full px-5 py-1.5 text-sm font-medium transition ${
             mode === "rss"
               ? "bg-purple-700 text-white"
@@ -181,7 +162,11 @@ export default function DashboardPage() {
           RSS Feeds
         </button>
         <button
-          onClick={() => { setMode("gdelt"); setArticles([]); setLoading(false); }}
+          onClick={() => {
+            setMode("gdelt")
+            setArticles([])
+            setLoading(false)
+          }}
           className={`rounded-full px-5 py-1.5 text-sm font-medium transition ${
             mode === "gdelt"
               ? "bg-indigo-600 text-white"
@@ -192,7 +177,6 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {/* ── RSS controls ── */}
       {mode === "rss" && (
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap gap-2">
@@ -220,14 +204,12 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ── GDELT controls ── */}
       {mode === "gdelt" && (
         <div className="mb-6 rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
           <p className="mb-3 text-xs font-medium text-indigo-700">
             GDELT monitors 100+ countries across 65+ languages, updated every 15 minutes.
           </p>
 
-          {/* Query input */}
           <div className="mb-3 flex gap-2">
             <input
               type="text"
@@ -246,7 +228,6 @@ export default function DashboardPage() {
             </button>
           </div>
 
-          {/* Timespan + Sort filters */}
           <div className="flex flex-wrap gap-4">
             <div className="flex items-center gap-2">
               <span className="text-xs text-indigo-600">Timespan:</span>
@@ -284,7 +265,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Result count */}
       {!loading && !error && filtered.length > 0 && (
         <p className="mb-4 text-xs text-gray-400">
           {filtered.length} article{filtered.length !== 1 ? "s" : ""}
@@ -293,14 +273,12 @@ export default function DashboardPage() {
         </p>
       )}
 
-      {/* Error state */}
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       )}
 
-      {/* GDELT idle state — no query entered yet */}
       {mode === "gdelt" && !gdeltQuery && !loading && (
         <div className="mt-16 flex flex-col items-center gap-2 text-center text-gray-400">
           <p className="text-lg font-medium">Enter a topic to search GDELT</p>
@@ -308,7 +286,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Card grid */}
       {(mode === "rss" || gdeltQuery) && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {loading
@@ -319,7 +296,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Empty state */}
       {!loading && !error && filtered.length === 0 && (mode === "rss" || gdeltQuery) && (
         <div className="mt-16 flex flex-col items-center gap-2 text-center text-gray-400">
           <p className="text-lg font-medium">No articles found</p>
