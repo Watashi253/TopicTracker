@@ -4,12 +4,12 @@ def test_pipeline():
     # A list of test cases to verify different parts of your engine
     test_cases = [
         {
-            "url": "https://www.reuters.com/technology/artificial-intelligence/", 
-            "source": "Reuters"
+            "url": "https://techcrunch.com/2026/04/11/nasa-lunar-mission-success-artemis-ii/", 
+            "source": "Hindustan Times"
         },
         {
-            "url": "https://www.bbc.com/news/business-68923415", 
-            "source": "BBC News"
+            "url": "https://timesofindia.indiatimes.com/science/nasas-artemis-ii-crew-returns-to-earth-with-pacific-splashdown-near-californias-san-diego/articleshow/130182394.cms",
+            "source": "TOI News"
         }
     ]
     print("🚀 Initializing Pipeline Test...")

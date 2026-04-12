@@ -18,17 +18,28 @@ import datetime
 # ... (SOURCE_CREDIBILITY dictionary remains same)
 
 def extract_with_playwright(url: str):
-    """Fallback: Uses a headless browser to render JS and bypass basic blocks."""
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            viewport={'width': 1920, 'height': 1080},
+            extra_http_headers={
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://www.google.com/"
+            }
+        )
+        page = context.new_page()
         try:
-            page.goto(url, wait_until="networkidle", timeout=30000)
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(2000) 
+            
             content = page.content()
             title = page.title()
             browser.close()
             return title, content
         except Exception as e:
+            print(f"Playwright failed: {e}")
             browser.close()
             return None, None
 
