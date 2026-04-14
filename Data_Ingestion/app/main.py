@@ -5,7 +5,7 @@ from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
+
 
 if __name__ == "__main__" and __package__ is None:
     sys.path.append(str(Path(__file__).resolve().parents[1]))
@@ -19,13 +19,6 @@ app = FastAPI(
     title       = "Article Ingestion API",
     description = "Unified ingestion layer for RSS, Twitter/X and GDELT",
     version     = "2.0"
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],          # ← change to wildcard for dev
-    allow_methods=["*"],
-    allow_headers=["*"],
 )
 
 RSS_SOURCES = {
@@ -217,4 +210,4 @@ async def fetch_all_sources(
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8002)

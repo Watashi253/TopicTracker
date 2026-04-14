@@ -1,42 +1,73 @@
 import numpy as np
 from sqlalchemy.orm import Session
-from database import SessionLocal
-from models import Article, TopicTimeline
-from extractor import extract_article_data
-from embeddings import get_text_embedding # Real BERT
+from sqlalchemy import func, desc
+from src.database import SessionLocal
+from src.models import Article, TopicTimeline
+from src.extractor import extract_article_data
+from src.embeddings import get_text_embedding
 
-# --- SEMANTIC DEDUPLICATION ---
-def is_semantic_duplicate(db: Session, new_vector, threshold=0.90):
+# --- 1.  Deduplication ---
+def is_semantic_duplicate(db: Session, new_vector, threshold=0.95):
     """
-    Checks if an article is a duplicate using pgvector cosine distance.
-    Distance = 1 - Similarity. 0.90 similarity = 0.10 distance.
+    Prevents the exact same story from being saved twice.
+    If similarity > 0.95, we treat it as a duplicate.
     """
     # Using pgvector's <=> operator (cosine distance)
-    # The math involved is: $$1 - \frac{\mathbf{A} \cdot \mathbf{B}}{\|\mathbf{A}\| \|\mathbf{B}\|}$$
+    # Cosine Similarity = 1 - Cosine Distance
     duplicate = db.query(Article).filter(
         Article.vector.cosine_distance(new_vector) < (1 - threshold)
     ).first()
     return duplicate is not None
 
-# --- PIPELINE EXECUTION ---
+# --- 2. THE SOFT GATE: Clustering ---
+def find_best_cluster(db: Session, new_vector, threshold=0.70):
+    """
+    Looks for a related "Leader" article to join its cluster.
+    """
+    match = db.query(
+        Article.cluster_id, 
+        (1 - Article.vector.cosine_distance(new_vector)).label('similarity')
+    ).filter(Article.cluster_id.isnot(None))\
+     .order_by(desc('similarity'))\
+     .first()
+
+    if match and match.similarity >= threshold:
+        return match.cluster_id, match.similarity
+    return None, 0.0
+
+# --- 3. THE UTILITY: ID Generator ---
+def get_next_cluster_id(db: Session):
+    """Calculates the next available cluster ID for a new story."""
+    max_id = db.query(func.max(Article.cluster_id)).scalar()
+    return (max_id or 0) + 1
+
+# --- THE MAIN PIPELINE ---
 def process_new_url(url: str, source_name: str):
     db = SessionLocal()
     try:
-        # 1. Extraction - MUST HAPPEN FIRST
+        # Step 1: Extract
         data = extract_article_data(url, source_name)
         if not data:
             return "Extraction failed."
 
-        # 2. Vectorization - Use the extracted data
-        # We combine Title + Snippet for a stronger semantic fingerprint
+        # Step 2: Vectorize
         content_to_vectorize = f"{data['title']} {data['full_text'][:500]}"
         vector = get_text_embedding(content_to_vectorize)
 
-        # 3. Deduplication 
-        if is_semantic_duplicate(db, vector):
-            return "Skipped: Semantic duplicate found."
+        # Step 3: Deduplicate (Hard Gate)
+        if is_semantic_duplicate(db, vector, threshold=0.95):
+            return f"Skipped: '{data['title']}' is a duplicate of an existing article."
 
-        # 4. Save to Article Pool 
+        # Step 4: Cluster (Soft Gate)
+        cluster_id, confidence = find_best_cluster(db, vector, threshold=0.70)
+        
+        if cluster_id:
+            status = f"Joined cluster {cluster_id} (Similarity: {confidence:.2f})"
+        else:
+            cluster_id = get_next_cluster_id(db)
+            status = f"Started new cluster {cluster_id}"
+
+        # Step 5: Save
         new_article = Article(
             title=data['title'],
             url=data['url'],
@@ -44,18 +75,21 @@ def process_new_url(url: str, source_name: str):
             source=data['source'],
             published=data['published'],
             vector=vector,
-            credibility_score=data['credibility_score']
+            credibility_score=data['credibility_score'],
+            cluster_id=cluster_id
         )
         db.add(new_article)
-        db.flush() # Secure the ID
+        db.flush() 
 
-        # 5. Update Topic Timeline 
-        # (Cluster ID logic will be handled by Person 3 later)
-        timeline_entry = TopicTimeline(article_id=new_article.id, cluster_id=1)
+        # Step 6: Timeline Record
+        timeline_entry = TopicTimeline(
+            article_id=new_article.id, 
+            cluster_id=cluster_id
+        )
         db.add(timeline_entry)
         
         db.commit()
-        return f"Success: Saved '{data['title']}'"
+        return f"Success: {status} - '{data['title']}'"
 
     except Exception as e:
         db.rollback()

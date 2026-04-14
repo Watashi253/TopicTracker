@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, Text, TIMESTAMP, Float, ForeignKey, Index
 from pgvector.sqlalchemy import Vector
-from database import Base
+from src.database import Base
 import datetime
 
 class Article(Base):
@@ -14,6 +14,7 @@ class Article(Base):
     vector = Column(Vector(384))
     summary = Column(Text)
     credibility_score = Column(Float)
+    cluster_id = Column(Integer, nullable=True)
     created_at = Column(TIMESTAMP, default=datetime.datetime.utcnow)
 
     __table_args__ = (
