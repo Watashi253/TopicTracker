@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
-from src.database import get_db
+from src.database import get_db, Base, engine
 from src.models import Article, TopicTimeline
 from typing import List
 
@@ -9,6 +9,11 @@ app = FastAPI(
     title="News Article Processing API",
     description="API for processing news articles, including extraction, deduplication, and timeline management.",
 )
+
+
+@app.on_event("startup")
+def on_startup():
+    Base.metadata.create_all(bind=engine)
 
 @app.get("/health")
 def health_check():

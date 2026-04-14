@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   db:
     image: ankane/pgvector:latest
@@ -38,11 +36,14 @@ services:
   worker:
     build: .
     container_name: topic_tracker_worker
-    command: celery -A src.worker.celery_app worker --loglevel=info -P solo -Q extraction
+    command: celery -A src.worker.celery_app worker --loglevel=info --pool=prefork --concurrency=${CELERY_CONCURRENCY:-4} --prefetch-multiplier=${CELERY_PREFETCH_MULTIPLIER:-8} --max-tasks-per-child=${CELERY_MAX_TASKS_PER_CHILD:-200} -Q extraction
     volumes:
       - .:/app
     env_file:
       - .env
+    environment:
+      HF_HUB_ENABLE_HF_TRANSFER: "1"
+      TOKENIZERS_PARALLELISM: "true"
     depends_on:
       - db
       - redis
