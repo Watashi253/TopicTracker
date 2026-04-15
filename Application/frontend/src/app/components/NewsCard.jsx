@@ -1,14 +1,9 @@
-const SOURCE_STYLES = {
-  bbc: { bg: "bg-red-100", text: "text-red-800", label: "BBC" },
-  aljazeera: { bg: "bg-green-100", text: "text-green-800", label: "Al Jazeera" },
-  reuters: { bg: "bg-amber-100", text: "text-amber-800", label: "Reuters" },
-  ap: { bg: "bg-blue-100", text: "text-blue-800", label: "AP News" },
-  gdelt: { bg: "bg-indigo-100", text: "text-indigo-800", label: "GDELT" },
-}
-
 function formatDate(iso) {
   if (!iso) return ""
-  return new Date(iso).toLocaleDateString("en-US", {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ""
+
+  return date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -16,54 +11,75 @@ function formatDate(iso) {
 }
 
 export default function NewsCard({ article }) {
-  const style = SOURCE_STYLES[article.source_name] ?? {
-    bg: "bg-gray-100",
-    text: "text-gray-700",
-    label: article.source_name,
-  }
+  const title = article?.title ?? "Untitled article"
+  const summary = article?.snippet ?? article?.summary ?? ""
+  const source = article?.source ?? "Unknown"
+  const publishedAt =
+    article?.published_at ?? article?.created_at ?? article?.date ?? ""
+  const credibility =
+    article?.credibility_score ?? article?.credibility ?? null
+  const url = article?.url ?? "#"
 
   return (
-    <div className="flex flex-col rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:shadow-md">
-      {/* Source badge + date */}
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <span
-          className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${style.bg} ${style.text}`}
-        >
-          {style.label}
+    <article className="flex h-full flex-col rounded-3xl border border-white/10 bg-slate-950/40 p-5 shadow-lg shadow-black/20 transition hover:-translate-y-1 hover:bg-slate-900/50">
+      
+      {/* Header */}
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-white/80">
+          {source}
         </span>
-        {article.published_at && (
-          <span className="text-xs text-gray-400">{formatDate(article.published_at)}</span>
-        )}
+
+        <div className="flex items-center gap-2">
+          {credibility !== null && credibility !== undefined && (
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-white/70">
+              {Number(credibility).toFixed(2)}
+            </span>
+          )}
+          {publishedAt && (
+            <span className="text-xs text-slate-400">
+              {formatDate(publishedAt)}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Title */}
-      <h2 className="mb-2 line-clamp-2 text-sm font-semibold leading-snug text-gray-900">
-        {article.title}
+      <h2 className="line-clamp-2 text-lg font-semibold leading-snug text-white">
+        {title}
       </h2>
 
-      {/* Snippet */}
-      {article.snippet && (
-        <p className="mb-4 line-clamp-3 flex-1 text-xs leading-relaxed text-gray-500">
-          {article.snippet}
+      {/* Summary */}
+      {summary ? (
+        <p className="mt-3 line-clamp-4 flex-1 text-sm leading-7 text-slate-300">
+          {summary}
+        </p>
+      ) : (
+        <p className="mt-3 flex-1 text-sm leading-7 text-slate-500">
+          No summary available.
         </p>
       )}
 
       {/* Footer */}
-      <div className="mt-auto flex items-center justify-between gap-2 border-t border-gray-100 pt-3">
-        {article.author ? (
-          <span className="truncate text-xs text-gray-400">{article.author}</span>
+      <div className="mt-6 flex items-center justify-between gap-3 border-t border-white/10 pt-4">
+        <span className="truncate text-xs text-slate-400">
+          {source}
+        </span>
+
+        {url && url !== "#" ? (
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950 transition hover:bg-sky-300"
+          >
+            Read original →
+          </a>
         ) : (
-          <span />
+          <span className="inline-flex items-center rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-white/40">
+            No link
+          </span>
         )}
-        <a
-          href={article.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="shrink-0 rounded-full bg-purple-700 px-3 py-1 text-xs font-medium text-white hover:bg-purple-800"
-        >
-          Read →
-        </a>
       </div>
-    </div>
+    </article>
   )
 }

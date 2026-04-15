@@ -8,7 +8,6 @@ const navItems = [
   { label: "Home", href: "/" },
   { label: "Track Topic", href: "/track" },
   { label: "Live Feed", href: "/feed" },
-  { label: "Timeline", href: "/timeline" },
   { label: "Subscriptions", href: "/subscriptions" },
   { label: "Dashboard", href: "/dashboard" },
 ]

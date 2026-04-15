@@ -1,50 +1,61 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import NewsCard from "../components/NewsCard"
+import { useEffect, useMemo, useState } from "react"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 
-const RSS_SOURCES = [
-  { key: "all", label: "All RSS" },
-  { key: "bbc", label: "BBC" },
-  { key: "aljazeera", label: "Al Jazeera" },
-  { key: "reuters", label: "Reuters" },
-  { key: "ap", label: "AP News" },
-]
+function formatDate(iso) {
+  if (!iso) return "—"
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return "—"
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
+}
 
-const GDELT_TIMESPANS = [
-  { key: "1day", label: "24 h" },
-  { key: "1week", label: "1 week" },
-  { key: "1month", label: "1 month" },
-]
-
-const GDELT_SORTS = [
-  { key: "HybridRel", label: "Relevance" },
-  { key: "DateDesc", label: "Latest" },
-  { key: "ToneDesc", label: "Tone" },
-]
-
-function SkeletonCard() {
+function StatCard({ label, value, hint }) {
   return (
-    <div className="flex flex-col rounded-2xl border border-gray-200 bg-white p-5">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="h-5 w-20 animate-pulse rounded-full bg-gray-200" />
-        <div className="h-4 w-16 animate-pulse rounded bg-gray-100" />
-      </div>
-      <div className="mb-2 space-y-1.5">
-        <div className="h-4 w-full animate-pulse rounded bg-gray-200" />
-        <div className="h-4 w-4/5 animate-pulse rounded bg-gray-200" />
-      </div>
-      <div className="mt-2 space-y-1">
-        <div className="h-3 w-full animate-pulse rounded bg-gray-100" />
-        <div className="h-3 w-full animate-pulse rounded bg-gray-100" />
-        <div className="h-3 w-3/4 animate-pulse rounded bg-gray-100" />
-      </div>
-      <div className="mt-auto flex items-center justify-between border-t border-gray-100 pt-3">
-        <div className="h-3 w-24 animate-pulse rounded bg-gray-100" />
-        <div className="h-6 w-16 animate-pulse rounded-full bg-gray-200" />
-      </div>
+    <div className="rounded-3xl border border-white/10 bg-white/5 p-5 shadow-lg shadow-black/20 backdrop-blur">
+      <p className="text-[11px] uppercase tracking-[0.26em] text-sky-300">
+        {label}
+      </p>
+      <p className="mt-3 text-2xl font-semibold text-white">{value}</p>
+      {hint ? <p className="mt-2 text-sm text-slate-400">{hint}</p> : null}
+    </div>
+  )
+}
+
+function Badge({ children, active = false, onClick }) {
+  const classes = active
+    ? "border-sky-400/40 bg-sky-400/15 text-sky-200"
+    : "border-white/10 bg-white/5 text-white/75 hover:bg-white/10"
+
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-full border px-3 py-1 text-xs font-medium transition ${classes}`}
+    >
+      {children}
+    </button>
+  )
+}
+
+function SectionTitle({ eyebrow, title, description }) {
+  return (
+    <div>
+      <p className="text-xs font-medium uppercase tracking-[0.28em] text-sky-300">
+        {eyebrow}
+      </p>
+      <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">
+        {title}
+      </h2>
+      {description ? (
+        <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300">
+          {description}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -53,259 +64,422 @@ export default function DashboardPage() {
   const [articles, setArticles] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [selectedCluster, setSelectedCluster] = useState(null)
+  const [evolution, setEvolution] = useState([])
+  const [timelineLoading, setTimelineLoading] = useState(false)
 
-  const [activeSource, setActiveSource] = useState("all")
-  const [search, setSearch] = useState("")
+  const fetchArticles = async () => {
+    setLoading(true)
+    setError(null)
 
-  const [mode, setMode] = useState("rss")
-  const [gdeltQuery, setGdeltQuery] = useState("")
-  const [gdeltInput, setGdeltInput] = useState("")
-  const [gdeltTimespan, setGdeltTimespan] = useState("1week")
-  const [gdeltSort, setGdeltSort] = useState("HybridRel")
+    try {
+      const res = await fetch(`${API_BASE}/articles/latest?limit=80`)
+      if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`)
 
-  useEffect(() => {
-    if (mode !== "rss") return
-    const controller = new AbortController()
-
-    const run = async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const endpoint =
-          activeSource === "all"
-            ? `${API_BASE}/fetch/rss/all`
-            : `${API_BASE}/fetch/rss/${activeSource}`
-        const res = await fetch(endpoint, { signal: controller.signal })
-        if (!res.ok) throw new Error(`Server returned ${res.status}`)
-        setArticles(await res.json())
-      } catch (e) {
-        if (e instanceof Error && e.name === "AbortError") return
-        setError("Could not load articles. Make sure the backend is running on port 8000.")
-      } finally {
-        setLoading(false)
-      }
+      const data = await res.json()
+      setArticles(Array.isArray(data) ? data : [])
+    } catch {
+      setError("Unable to load dashboard data.")
+    } finally {
+      setLoading(false)
     }
-
-    run()
-    return () => controller.abort()
-  }, [mode, activeSource])
-
-  useEffect(() => {
-    if (mode !== "gdelt" || !gdeltQuery.trim()) return
-    const controller = new AbortController()
-
-    const run = async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const params = new URLSearchParams({
-          query: gdeltQuery,
-          limit: "30",
-          sort: gdeltSort,
-          timespan: gdeltTimespan,
-          language: "English",
-        })
-        const res = await fetch(`${API_BASE}/fetch/gdelt?${params}`, {
-          signal: controller.signal,
-        })
-        if (!res.ok) throw new Error(`Server returned ${res.status}`)
-        setArticles(await res.json())
-      } catch (e) {
-        if (e instanceof Error && e.name === "AbortError") return
-        setError("GDELT fetch failed. Make sure the backend is running.")
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    run()
-    return () => controller.abort()
-  }, [mode, gdeltQuery, gdeltTimespan, gdeltSort])
-
-  const filtered = articles.filter((a) => {
-    if (mode === "gdelt" || !search.trim()) return true
-    const q = search.toLowerCase()
-    return (
-      a.title.toLowerCase().includes(q) ||
-      (a.snippet ?? "").toLowerCase().includes(q)
-    )
-  })
-
-  const handleGdeltSearch = () => {
-    const q = gdeltInput.trim()
-    if (!q) return
-    setGdeltQuery(q)
-    setArticles([])
   }
 
+  useEffect(() => {
+    fetchArticles()
+  }, [])
+
+  const clusters = useMemo(() => {
+    const map = new Map()
+
+    for (const article of articles) {
+      const key = article.cluster_id ?? "unclustered"
+      if (!map.has(key)) map.set(key, [])
+      map.get(key).push(article)
+    }
+
+    return Array.from(map.entries())
+      .map(([id, items]) => {
+        const ordered = [...items].sort(
+          (a, b) =>
+            new Date(b.created_at ?? 0).getTime() -
+            new Date(a.created_at ?? 0).getTime()
+        )
+
+        const sources = Array.from(
+          new Set(items.map((a) => a.source).filter(Boolean))
+        )
+
+        const avgCredibility =
+          items.length > 0
+            ? (
+                items.reduce(
+                  (sum, item) => sum + Number(item.credibility_score ?? 0),
+                  0
+                ) / items.length
+              ).toFixed(2)
+            : "0.00"
+
+        return {
+          id,
+          items,
+          count: items.length,
+          title: ordered[0]?.title ?? "Untitled story",
+          latestAt: ordered[0]?.created_at ?? null,
+          sources,
+          avgCredibility,
+        }
+      })
+      .sort(
+        (a, b) =>
+          new Date(b.latestAt ?? 0).getTime() -
+          new Date(a.latestAt ?? 0).getTime()
+      )
+  }, [articles])
+
+  useEffect(() => {
+    if (!clusters.length) return
+    if (selectedCluster === null) {
+      const firstReal = clusters.find((c) => c.id !== "unclustered") ?? clusters[0]
+      setSelectedCluster(firstReal?.id ?? null)
+    }
+  }, [clusters, selectedCluster])
+
+  useEffect(() => {
+    const loadEvolution = async () => {
+      if (!selectedCluster || selectedCluster === "unclustered") {
+        setEvolution([])
+        return
+      }
+
+      setTimelineLoading(true)
+      try {
+        const res = await fetch(`${API_BASE}/evolution/${selectedCluster}`)
+        if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`)
+
+        const data = await res.json()
+        setEvolution(Array.isArray(data) ? data : [])
+      } catch {
+        setEvolution([])
+      } finally {
+        setTimelineLoading(false)
+      }
+    }
+
+    loadEvolution()
+  }, [selectedCluster])
+
+  const selectedClusterData = useMemo(() => {
+    return clusters.find((c) => c.id === selectedCluster) ?? null
+  }, [clusters, selectedCluster])
+
+  const selectedClusterArticles = useMemo(() => {
+    if (!selectedClusterData) return []
+    return [...selectedClusterData.items].sort(
+      (a, b) =>
+        new Date(b.created_at ?? 0).getTime() -
+        new Date(a.created_at ?? 0).getTime()
+    )
+  }, [selectedClusterData])
+
+  const totalArticles = articles.length
+  const trackedTopics = clusters.filter((c) => c.id !== "unclustered").length
+
+  const avgCredibility = useMemo(() => {
+    if (!articles.length) return "—"
+    const total = articles.reduce(
+      (sum, item) => sum + Number(item.credibility_score ?? 0),
+      0
+    )
+    return (total / articles.length).toFixed(2)
+  }, [articles])
+
+  const topSource = useMemo(() => {
+    const count = new Map()
+    for (const article of articles) {
+      const src = article.source ?? "Unknown"
+      count.set(src, (count.get(src) ?? 0) + 1)
+    }
+
+    let winner = "—"
+    let best = 0
+    for (const [src, n] of count.entries()) {
+      if (n > best) {
+        best = n
+        winner = src
+      }
+    }
+    return winner
+  }, [articles])
+
+  const latestArticles = useMemo(() => {
+    return [...articles]
+      .sort(
+        (a, b) =>
+          new Date(b.created_at ?? 0).getTime() -
+          new Date(a.created_at ?? 0).getTime()
+      )
+      .slice(0, 8)
+  }, [articles])
+
   return (
-    <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Live News Feed</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Real-time articles from global news sources and GDELT
-        </p>
-      </div>
-
-      <div className="mb-5 flex gap-2">
-        <button
-          onClick={() => {
-            setMode("rss")
-            setArticles([])
-          }}
-          className={`rounded-full px-5 py-1.5 text-sm font-medium transition ${
-            mode === "rss"
-              ? "bg-purple-700 text-white"
-              : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
-          }`}
-        >
-          RSS Feeds
-        </button>
-        <button
-          onClick={() => {
-            setMode("gdelt")
-            setArticles([])
-            setLoading(false)
-          }}
-          className={`rounded-full px-5 py-1.5 text-sm font-medium transition ${
-            mode === "gdelt"
-              ? "bg-indigo-600 text-white"
-              : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
-          }`}
-        >
-          GDELT Global Search
-        </button>
-      </div>
-
-      {mode === "rss" && (
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap gap-2">
-            {RSS_SOURCES.map((s) => (
-              <button
-                key={s.key}
-                onClick={() => setActiveSource(s.key)}
-                className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
-                  activeSource === s.key
-                    ? "bg-purple-700 text-white"
-                    : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
+    <main className="min-h-screen bg-[#06111f] text-white">
+      <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mb-8 flex flex-col gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.28em] text-sky-300">
+              Dashboard
+            </p>
+            <h1 className="mt-2 text-4xl font-semibold tracking-tight">
+              Topic activity overview
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-400">
+              A compact control page for story clusters, article counts, credibility,
+              and topic evolution.
+            </p>
           </div>
-          <input
-            type="text"
-            placeholder="Search articles…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full rounded-full border border-gray-200 bg-white px-4 py-1.5 text-sm text-gray-700 placeholder-gray-400 focus:border-purple-400 focus:outline-none sm:w-56"
-          />
-        </div>
-      )}
 
-      {mode === "gdelt" && (
-        <div className="mb-6 rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
-          <p className="mb-3 text-xs font-medium text-indigo-700">
-            GDELT monitors 100+ countries across 65+ languages, updated every 15 minutes.
-          </p>
-
-          <div className="mb-3 flex gap-2">
-            <input
-              type="text"
-              placeholder="e.g. climate change, Gaza ceasefire, oil crisis…"
-              value={gdeltInput}
-              onChange={(e) => setGdeltInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleGdeltSearch()}
-              className="flex-1 rounded-full border border-indigo-200 bg-white px-4 py-2 text-sm text-gray-700 placeholder-gray-400 focus:border-indigo-400 focus:outline-none"
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard
+              label="Articles"
+              value={String(totalArticles)}
+              hint="Loaded from database"
             />
-            <button
-              onClick={handleGdeltSearch}
-              disabled={!gdeltInput.trim()}
-              className="rounded-full bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
-            >
-              Search
-            </button>
-          </div>
-
-          <div className="flex flex-wrap gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-indigo-600">Timespan:</span>
-              {GDELT_TIMESPANS.map((t) => (
-                <button
-                  key={t.key}
-                  onClick={() => setGdeltTimespan(t.key)}
-                  className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                    gdeltTimespan === t.key
-                      ? "bg-indigo-600 text-white"
-                      : "border border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50"
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-indigo-600">Sort:</span>
-              {GDELT_SORTS.map((s) => (
-                <button
-                  key={s.key}
-                  onClick={() => setGdeltSort(s.key)}
-                  className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                    gdeltSort === s.key
-                      ? "bg-indigo-600 text-white"
-                      : "border border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50"
-                  }`}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
+            <StatCard
+              label="Topics"
+              value={String(trackedTopics)}
+              hint="Clustered stories"
+            />
+            <StatCard
+              label="Credibility"
+              value={avgCredibility}
+              hint="Average score"
+            />
+            <StatCard
+              label="Top source"
+              value={topSource}
+              hint="Most active publisher"
+            />
           </div>
         </div>
-      )}
 
-      {!loading && !error && filtered.length > 0 && (
-        <p className="mb-4 text-xs text-gray-400">
-          {filtered.length} article{filtered.length !== 1 ? "s" : ""}
-          {mode === "gdelt" && gdeltQuery ? ` for "${gdeltQuery}"` : ""}
-          {mode === "rss" && search ? ` matching "${search}"` : ""}
-        </p>
-      )}
+        {error && (
+          <div className="mb-6 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            {error}
+          </div>
+        )}
 
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
+        <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+          <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6 shadow-2xl shadow-black/20 backdrop-blur">
+            <SectionTitle
+              eyebrow="Tracked topics"
+              title="Active clusters"
+              description="Select a topic to inspect its latest articles and how the story is developing."
+            />
+
+            <div className="mt-6 space-y-3">
+              {loading
+                ? Array.from({ length: 4 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="h-24 animate-pulse rounded-3xl border border-white/10 bg-white/5"
+                    />
+                  ))
+                : clusters.length > 0
+                ? clusters.map((cluster) => {
+                    const active = cluster.id === selectedCluster
+                    return (
+                      <button
+                        key={String(cluster.id)}
+                        onClick={() => setSelectedCluster(cluster.id)}
+                        className={`w-full rounded-3xl border p-4 text-left transition ${
+                          active
+                            ? "border-sky-400/40 bg-sky-400/10"
+                            : "border-white/10 bg-slate-950/30 hover:bg-white/5"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <p className="text-xs uppercase tracking-[0.24em] text-sky-300">
+                              Cluster {String(cluster.id)}
+                            </p>
+                            <h3 className="mt-2 line-clamp-2 text-base font-semibold text-white">
+                              {cluster.title}
+                            </h3>
+                          </div>
+                          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-white/75">
+                            {cluster.count}
+                          </span>
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {cluster.sources.slice(0, 3).map((source) => (
+                            <Badge key={source}>{source}</Badge>
+                          ))}
+                        </div>
+
+                        <div className="mt-4 flex items-center justify-between text-xs text-slate-400">
+                          <span>Credibility {cluster.avgCredibility}</span>
+                          <span>{formatDate(cluster.latestAt)}</span>
+                        </div>
+                      </button>
+                    )
+                  })
+                : (
+                  <div className="rounded-3xl border border-white/10 bg-slate-950/30 p-5 text-sm text-slate-300">
+                    No clusters available yet.
+                  </div>
+                )}
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6 shadow-2xl shadow-black/20 backdrop-blur">
+              <SectionTitle
+                eyebrow="Selected topic"
+                title={selectedClusterData?.title ?? "Choose a cluster"}
+                description="Core details for the currently selected story cluster."
+              />
+
+              {selectedClusterData ? (
+                <>
+                  <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                    <StatCard
+                      label="Articles"
+                      value={String(selectedClusterData.count)}
+                      hint="In this cluster"
+                    />
+                    <StatCard
+                      label="Sources"
+                      value={String(selectedClusterData.sources.length)}
+                      hint="Unique publishers"
+                    />
+                    <StatCard
+                      label="Credibility"
+                      value={selectedClusterData.avgCredibility}
+                      hint="Cluster average"
+                    />
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    {selectedClusterData.sources.map((source) => (
+                      <Badge key={source}>{source}</Badge>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="mt-4 text-sm text-slate-400">
+                  Select a cluster to view details.
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6 shadow-2xl shadow-black/20 backdrop-blur">
+              <SectionTitle
+                eyebrow="Story evolution"
+                title="Timeline"
+                description="The latest articles for this topic, ordered by arrival."
+              />
+
+              <div className="mt-6 space-y-3">
+                {timelineLoading ? (
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="h-16 animate-pulse rounded-2xl border border-white/10 bg-white/5"
+                    />
+                  ))
+                ) : evolution.length > 0 ? (
+                  evolution.map((item) => (
+                    <div
+                      key={`${item.url ?? item.title}-${item.arrived_at}`}
+                      className="rounded-2xl border border-white/10 bg-slate-950/30 p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="line-clamp-2 text-sm font-semibold text-white">
+                            {item.title}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-400">
+                            {item.source} · {formatDate(item.arrived_at)}
+                          </p>
+                        </div>
+                        {item.url ? (
+                          <a
+                            href={item.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950 transition hover:bg-sky-300"
+                          >
+                            Open
+                          </a>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/30 p-5 text-sm text-slate-300">
+                    Select a topic cluster to load its timeline.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
-      )}
 
-      {mode === "gdelt" && !gdeltQuery && !loading && (
-        <div className="mt-16 flex flex-col items-center gap-2 text-center text-gray-400">
-          <p className="text-lg font-medium">Enter a topic to search GDELT</p>
-          <p className="text-sm">Try: "Gaza ceasefire", "AI regulation", "climate summit"</p>
-        </div>
-      )}
+        <div className="mt-6 rounded-[2rem] border border-white/10 bg-white/5 p-6 shadow-2xl shadow-black/20 backdrop-blur">
+          <SectionTitle
+            eyebrow="Recent articles"
+            title="Latest processed updates"
+            description="A quick view of the newest items currently stored in the database."
+          />
 
-      {(mode === "rss" || gdeltQuery) && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {loading
-            ? Array.from({ length: 9 }).map((_, i) => <SkeletonCard key={i} />)
-            : filtered.map((article, i) => (
-                <NewsCard key={`${article.url}-${i}`} article={article} />
-              ))}
-        </div>
-      )}
+          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {loading
+              ? Array.from({ length: 8 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="h-44 animate-pulse rounded-3xl border border-white/10 bg-white/5"
+                  />
+                ))
+              : latestArticles.map((article, index) => (
+                  <div
+                    key={article.id ?? index}
+                    className="rounded-3xl border border-white/10 bg-slate-950/30 p-4"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <Badge>{article.source ?? "Unknown"}</Badge>
+                      <span className="text-xs text-slate-400">
+                        {formatDate(article.created_at)}
+                      </span>
+                    </div>
 
-      {!loading && !error && filtered.length === 0 && (mode === "rss" || gdeltQuery) && (
-        <div className="mt-16 flex flex-col items-center gap-2 text-center text-gray-400">
-          <p className="text-lg font-medium">No articles found</p>
-          <p className="text-sm">
-            {mode === "rss" && search
-              ? "Try a different search term."
-              : "The feed returned no results."}
-          </p>
+                    <h3 className="mt-4 line-clamp-2 text-sm font-semibold text-white">
+                      {article.title}
+                    </h3>
+
+                    <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-3">
+                      <span className="text-xs text-slate-400">
+                        Credibility {Number(article.credibility_score ?? 0).toFixed(2)}
+                      </span>
+                      {article.url ? (
+                        <a
+                          href={article.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs font-semibold text-sky-300 hover:text-sky-200"
+                        >
+                          Read original →
+                        </a>
+                      ) : (
+                        <span className="text-xs text-slate-500">No link</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+          </div>
         </div>
-      )}
+      </section>
     </main>
   )
 }

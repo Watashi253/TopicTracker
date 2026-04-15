@@ -72,9 +72,6 @@ export default async function ProfilePage() {
           <h1 className="mt-3 text-4xl font-semibold tracking-tight">
             Your account details
           </h1>
-          <p className="mt-3 max-w-2xl text-slate-300">
-            Data synced from Clerk into MongoDB Atlas.
-          </p>
 
           {/* Sync status badge */}
           {isSynced ? (
