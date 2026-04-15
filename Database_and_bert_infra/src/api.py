@@ -40,6 +40,7 @@ def get_latest_news(limit: int = 20, db: Session = Depends(get_db)):
             "id": a.id,
             "title": a.title,
             "url": a.url,
+            "summary": a.summary,
             "source": a.source,
             "credibility_score": score,
             "cluster_id": a.cluster_id,
