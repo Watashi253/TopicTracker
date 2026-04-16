@@ -1,139 +1,95 @@
-"""
-Summarizer worker
------------------
-A long-running blocking process that:
-
-  1. BLPOP  article _id from Redis queue  (blocks until one arrives)
-  2. Fetch  raw article from MongoDB raw_articles
-  3. Skip   if already processed (safe on worker restart)
-  4. Call   HuggingFace BART → short_title  (2-6 words)
-                              → medium_summary (1-3 sentences)
-  5. Insert processed document into processed_articles
-  6. Update raw article: summarized=True
-
-The two collections are linked by  processed_articles.raw_article_id → raw_articles._id
-
-Start with:
-    make worker
-or:
-    python -m summarizer.worker
-"""
+import os
+from celery import Celery
+from dotenv import load_dotenv
 import logging
-import time
-from datetime import datetime, timezone
-
-from bson import ObjectId
-from pymongo.errors import DuplicateKeyError
-
-from config.settings import settings
-from db.mongo import get_sync_db
-from db.redis_client import get_redis
+from db.postgres import SessionLocal
 from summarizer.hf_client import get_medium_summary, get_short_title
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(message)s",
-)
+from sqlalchemy import Column, Integer, Text, TIMESTAMP, Float, ForeignKey, Index
+from pgvector.sqlalchemy import Vector
+from sqlalchemy.ext.declarative import declarative_base
+import datetime
 logger = logging.getLogger(__name__)
+Base = declarative_base()
+class Article(Base):
+    __tablename__ = 'articles'
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(Text)
+    url = Column(Text, unique=True, index=True)
+    full_text = Column(Text)
+    source = Column(Text)
+    published = Column(TIMESTAMP)
+    vector = Column(Vector(384))
+    summary = Column(Text)
+    credibility_score = Column(Float)
+    cluster_id = Column(Integer, nullable=True)
+    created_at = Column(TIMESTAMP, default=datetime.datetime.utcnow)
 
+    __table_args__ = (
+        Index('articles_vector_idx', 'vector', postgresql_using='hnsw', 
+              postgresql_with={'m': 16, 'ef_construction': 64},
+              postgresql_ops={'vector': 'vector_cosine_ops'}),
+    )
+load_dotenv()
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
-def run_worker() -> None:  # noqa: C901 — intentionally one long function
-    r = get_redis()
-    db = get_sync_db()
-    raw_col = db[settings.RAW_COLLECTION]
-    proc_col = db[settings.PROCESSED_COLLECTION]
+celery_app = Celery(
+    "news_pipeline",
+    broker=REDIS_URL,
+    backend=REDIS_URL, 
+)
 
-    # Unique index — prevents double-processing even if _id appears in queue twice
-    proc_col.create_index("raw_article_id", unique=True)
+celery_app.conf.update(
+    task_serializer="json",
+    accept_content=["json"],
+    result_serializer="json",
+    timezone="UTC",
+    enable_utc=True,
+    task_routes={
+        "app.tasks.send_summarizer": {"queue": "summarizer"},
+        "tasks.perform_extraction": {"queue": "extraction"},
+    }
+)
 
-    logger.info("[Worker] Summarizer worker started. Listening on '%s'…", settings.REDIS_QUEUE_KEY)
+@celery_app.task(name="app.tasks.send_summarizer", queue="summarizer")
+def summarizer_task(payload: dict):
+   
+    article_id = payload.get("article_id")
+    if not article_id:
+        logger.error("[Summarizer] No article_id provided in payload.")
+        return
 
-    while True:
+    db = SessionLocal()
+    try:
+        article = db.query(Article).filter(Article.id == article_id).first()
+        
+        if not article:
+            logger.warning(f"[Summarizer] Article {article_id} not found in database.")
+            return
+
+        logger.info(f"[Summarizer] Processing Article {article_id}: {article.title[:50]}...")
+
+        text_to_process = f"{article.title}. {article.full_text}".strip()
+
+        if len(text_to_process) < 50:
+            logger.warning(f"[Summarizer] Article {article_id} text too short. Skipping.")
+            return
+        if article.summary:
+            logger.info(f"[Summarizer] Article {article_id} already has a summary. Skipping.")
+            return
         try:
-            # BLPOP blocks for up to 5 s, then returns None (so we can loop cleanly)
-            item = r.blpop(settings.REDIS_QUEUE_KEY, timeout=5)
-            if item is None:
-                continue  # timeout → loop back
+            
+            medium_summary = get_medium_summary(text_to_process)
+        except Exception as ai_exc:
+            logger.error(f"[Summarizer] AI Model error for {article_id}: {ai_exc}")
+            raise ai_exc
 
-            _, raw_id_str = item
-            logger.info("[Worker] Picked up article id: %s", raw_id_str)
+        article.summary = medium_summary
+        
+        db.commit()
+        logger.info(f"[Summarizer] Done: '{short_title}'")
 
-            # ── Fetch raw article ────────────────────────────────────────────
-            try:
-                raw_article = raw_col.find_one({"_id": ObjectId(raw_id_str)})
-            except Exception as exc:
-                logger.error("[Worker] Bad ObjectId '%s': %s", raw_id_str, exc)
-                continue
-
-            if not raw_article:
-                logger.warning("[Worker] Article %s not found in raw_articles", raw_id_str)
-                continue
-
-            # ── Skip if already processed (idempotent on restart) ────────────
-            if proc_col.find_one({"raw_article_id": raw_id_str}):
-                logger.info("[Worker] Already processed %s — skipping", raw_id_str)
-                continue
-
-            # ── Build text for BART ──────────────────────────────────────────
-            title = raw_article.get("title") or ""
-            snippet = raw_article.get("snippet") or ""
-            full_text = f"{title}. {snippet}".strip(". ")
-
-            if len(full_text) < 20:
-                logger.warning("[Worker] Too little text for %s — skipping", raw_id_str)
-                continue
-
-            # ── Call HuggingFace BART ────────────────────────────────────────
-            try:
-                short_title = get_short_title(full_text)
-                medium_summary = get_medium_summary(full_text)
-            except Exception as exc:
-                logger.error("[Worker] BART API error for %s: %s — re-queuing", raw_id_str, exc)
-                time.sleep(3)
-                r.rpush(settings.REDIS_QUEUE_KEY, raw_id_str)  # retry later
-                continue
-
-            # ── Write processed document ────────────────────────────────────
-            processed_doc = {
-                # Link back to raw_articles so callers can always fetch the original
-                "raw_article_id": raw_id_str,
-                # Convenience copies to avoid a second DB round-trip on reads
-                "source_name": raw_article.get("source_name"),
-                "source_type": raw_article.get("source_type"),
-                "original_url": raw_article.get("url"),
-                "original_title": title,
-                "published_at": raw_article.get("published_at"),
-                # The summarised output
-                "short_title": short_title,
-                "medium_summary": medium_summary,
-                "processed_at": datetime.now(timezone.utc).isoformat(),
-            }
-
-            try:
-                proc_col.insert_one(processed_doc)
-                # Mark the raw article as done
-                raw_col.update_one(
-                    {"_id": ObjectId(raw_id_str)},
-                    {
-                        "$set": {
-                            "summarized": True,
-                            "summarized_at": datetime.now(timezone.utc).isoformat(),
-                        }
-                    },
-                )
-                logger.info('[Worker] ✓ Done: "%s"', short_title)
-            except DuplicateKeyError:
-                logger.info("[Worker] Race condition — %s already saved, skipping", raw_id_str)
-            except Exception as exc:
-                logger.error("[Worker] DB write failed for %s: %s", raw_id_str, exc)
-
-        except KeyboardInterrupt:
-            logger.info("[Worker] Received interrupt — shutting down cleanly.")
-            break
-        except Exception as exc:
-            logger.error("[Worker] Unexpected error: %s", exc)
-            time.sleep(1)
-
-
-if __name__ == "__main__":
-    run_worker()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[Summarizer] Fatal error on article {article_id}: {e}")
+    finally:
+        db.close()

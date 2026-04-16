@@ -106,10 +106,10 @@ def send_to_extraction(raw_article_dict: dict):
     print(f"[Extraction] received: {raw_article_dict.get('url', 'unknown')}")
 
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # PHASE 1 — RSS TASKS (one per source, dedicated queue each)
-# ═══════════════════════════════════════════════════════════════════════════════
-
+# ══
 @celery_app.task(queue="reuters", name="app.tasks.fetch_reuters")
 def fetch_reuters():
     """

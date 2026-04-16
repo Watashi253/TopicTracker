@@ -5,7 +5,7 @@ from src.database import SessionLocal
 from src.models import Article, TopicTimeline
 from src.extractor import extract_article_data
 from src.embeddings import get_text_embedding
-
+from src.worker import hand_to_summarizzer
 # --- 1.  Deduplication ---
 def is_semantic_duplicate(db: Session, new_vector, threshold=0.95):
     """
@@ -78,6 +78,7 @@ def process_new_url(url: str, source_name: str):
             credibility_score=data['credibility_score'],
             cluster_id=cluster_id
         )
+        
         db.add(new_article)
         db.flush() 
 
@@ -89,6 +90,7 @@ def process_new_url(url: str, source_name: str):
         db.add(timeline_entry)
         
         db.commit()
+        hand_to_summarizzer(new_article.id)
         return f"Success: {status} - '{data['title']}'"
 
     except Exception as e:
@@ -96,3 +98,5 @@ def process_new_url(url: str, source_name: str):
         return f"Error processing {url}: {e}"
     finally:
         db.close()
+
+
