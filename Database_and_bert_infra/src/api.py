@@ -4,6 +4,7 @@ from sqlalchemy import desc
 from src.database import get_db, Base, engine
 from src.models import Article, TopicTimeline
 from typing import List
+from datetime import datetime
 
 app = FastAPI(
     title="News Article Processing API",
@@ -68,4 +69,14 @@ def get_topic_evolution(cluster_id: int, db: Session=Depends(get_db)):
     if not results:
         raise HTTPException(status_code=404, detail="Cluster not found")
     
+    return results
+
+@app.get("/search")
+def search(query: str, db: Session = Depends(get_db)):
+    results = db.query(Article)
+    
+    for article in results:
+        article.last_seen_at = datetime.now() # Triggers the 'onupdate'
+    
+    db.commit()
     return results
