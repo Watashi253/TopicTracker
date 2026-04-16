@@ -5,7 +5,7 @@ from src.processor import process_new_url
 from datetime import datetime, timedelta
 from src.database import SessionLocal
 from src.models import Article
-
+from celery.schedules import crontab
 load_dotenv()
 REDIS_URL = f"redis://{os.getenv('REDIS_HOST')}:{os.getenv('REDIS_PORT')}/0"
 celery_app = Celery("tasks", broker=REDIS_URL, backend=REDIS_URL)
@@ -50,3 +50,10 @@ def hand_to_summarizzer(article_id: int):
     except Exception as e:
         print(f"[Worker] Failed to send article {article_id} to summarizer: {e}")   
 
+celery_app.conf.beat_schedule = {
+    "purge-stale-articles-daily": {
+        "task": "tasks.cleanup_old_articles",
+        "schedule": crontab(hour=0, minute=0),  
+        "options": {"queue": "maintenance"}     
+    },
+}
