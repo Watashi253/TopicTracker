@@ -1,0 +1,113 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: topic_tracker_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - topic_tracker
+
+
+  ingestion-api:
+    build: ./Data_Ingestion
+    container_name: ingestion_api
+    ports:
+      - "8002:8002"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - topic_tracker
+    restart: unless-stopped
+
+  ingestion-worker:
+    build: ./Data_Ingestion
+    container_name: ingestion_worker
+    command: >
+      celery -A app.tasks worker
+        --loglevel=info
+        --concurrency=4
+        -Q reuters,bbc,ap,aljazeera,twitter,gdelt,reddit
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - topic_tracker
+    restart: unless-stopped
+
+  ingestion-beat:
+    build: ./Data_Ingestion
+    container_name: ingestion_beat
+    command: >
+      celery -A app.tasks beat
+        --loglevel=info
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - topic_tracker
+    restart: unless-stopped
+
+
+  db-api:
+    build: ./Database_and_bert_infra
+    container_name: topic_tracker_api
+    command: uvicorn src.api:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./Database_and_bert_infra/.env
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - topic_tracker
+    restart: unless-stopped
+
+  db-worker:
+    build: ./Database_and_bert_infra
+    container_name: topic_tracker_worker
+    command: >
+      celery -A src.worker.celery_app worker
+        --loglevel=info
+        --pool=prefork
+        --concurrency=4
+        -Q extraction,maintenance
+    env_file:
+      - ./Database_and_bert_infra/.env
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_URL=redis://redis:6379/0
+      - HF_HUB_ENABLE_HF_TRANSFER=1
+      - TOKENIZERS_PARALLELISM=true
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - topic_tracker
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+
+networks:
+  topic_tracker:
+    driver: bridge

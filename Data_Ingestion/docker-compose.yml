@@ -1,0 +1,62 @@
+# ─────────────────────────────────────────────────────────────
+#  Data_Ingestion — docker-compose.yml
+#
+#  IMPORTANT: This service communicates with two other services:
+#
+#  1. Database_and_bert_infra  (via shared Redis)
+#     Data_Ingestion sends tasks to the "extraction" queue.
+#     The DB/BERT worker picks them up from the same queue.
+#     → Both services MUST connect to the SAME Redis instance.
+#
+#  2. Backend_API  (via HTTP on port 8002)
+#     Backend_API calls Data_Ingestion's /fetch/all endpoint.
+#     → INGESTION_BASE_URL in Backend_API must point here.
+#
+#  To wire everything together, use the root-level
+#  docker-compose.yml or a shared Docker network.
+# ─────────────────────────────────────────────────────────────
+
+services:
+  # ── FastAPI server (port 8002) ─────────────────────────────
+  api:
+    build: .
+    container_name: ingestion_api
+    ports:
+      - "8002:8002"
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    networks:
+      - topic_tracker
+    restart: unless-stopped
+
+  # ── Celery worker — processes ingestion queues ─────────────
+  worker:
+    build: .
+    container_name: ingestion_worker
+    command: >
+      celery -A app.tasks worker
+        --loglevel=info
+        --concurrency=4
+        -Q reuters,bbc,ap,aljazeera,twitter,gdelt,reddit,extraction
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    networks:
+      - topic_tracker
+    restart: unless-stopped
+
+  # ── Celery Beat — fires scheduled tasks ────────────────────
+  beat:
+    build: .
+    container_name: ingestion_beat
+    command: >
+      celery -A app.tasks beat
+        --loglevel=info
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    networks:
+      - topic_tracker
+    restart: unless-stopped
+
+networks:
+  topic_tracker:
+    external: true
