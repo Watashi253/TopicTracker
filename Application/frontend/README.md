@@ -85,10 +85,13 @@ Create a `.env.local` file in the `frontend/` directory with the following varia
 ```env
 # MongoDB
 MONGODB_URI=your_mongodb_connection_string
+MONGODB_DB=your_database_name
 
 # Clerk Authentication
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
 CLERK_SECRET_KEY=your_clerk_secret_key
+
+NEXT_PUBLIC_API_URL=http://localhost:<PORT>
 
 NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
 NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
