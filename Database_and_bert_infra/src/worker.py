@@ -9,7 +9,6 @@ from src.models import Article
 load_dotenv()
 REDIS_URL = f"redis://{os.getenv('REDIS_HOST')}:{os.getenv('REDIS_PORT')}/0"
 celery_app = Celery("tasks", broker=REDIS_URL, backend=REDIS_URL)
-
 celery_app.conf.update(
     task_default_queue="extraction",
     worker_prefetch_multiplier=int(os.getenv("CELERY_PREFETCH_MULTIPLIER", "8")),
@@ -26,9 +25,11 @@ celery_app.conf.update(
     },
 )
 
+
 @celery_app.task(name="tasks.perform_extraction", queue="extraction")
 def extraction_task(url: str, source: str):
     return process_new_url(url, source)
+
 
 @celery_app.task(name="tasks.cleanup_old_articles", queue="maintenance")
 def purge_stale_content():
@@ -42,3 +43,10 @@ def purge_stale_content():
 
     finally: 
         db.close()
+def hand_to_summarizzer(article_id: int):
+    try:
+        celery_app.send_task("app.tasks.send_summarizer", args=[{"article_id": article_id}])
+        print(f"[Worker] Handed article {article_id} to summarizer.")
+    except Exception as e:
+        print(f"[Worker] Failed to send article {article_id} to summarizer: {e}")   
+
