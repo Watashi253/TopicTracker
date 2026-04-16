@@ -1,7 +1,8 @@
-from sqlalchemy import Column, Integer, Text, TIMESTAMP, Float, ForeignKey, Index
+from sqlalchemy import Column, Integer, Text, TIMESTAMP, Float, ForeignKey, Index , DateTime, func
 from pgvector.sqlalchemy import Vector
 from src.database import Base
-import datetime
+from datetime import datetime
+from sqlalchemy.orm import Mapped, mapped_column
 
 class Article(Base):
     __tablename__ = 'articles'
@@ -15,7 +16,15 @@ class Article(Base):
     summary = Column(Text)
     credibility_score = Column(Float)
     cluster_id = Column(Integer, nullable=True)
-    created_at = Column(TIMESTAMP, default=datetime.datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, 
+        server_default=func.now()
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime, 
+        server_default=func.now(), 
+        onupdate=func.now()
+    )
 
     __table_args__ = (
         Index('articles_vector_idx', 'vector', postgresql_using='hnsw', 
@@ -28,4 +37,7 @@ class TopicTimeline(Base):
     id = Column(Integer, primary_key=True, index=True)
     cluster_id = Column(Integer)
     article_id = Column(Integer, ForeignKey('articles.id'))
-    arrived_at = Column(TIMESTAMP, default=datetime.datetime.utcnow)
+    arrived_at: Mapped[datetime] = mapped_column(
+        DateTime, 
+        server_default=func.now()
+    )
