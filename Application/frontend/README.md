@@ -123,7 +123,7 @@ npm start
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `PUT` | `/api/profile/update` | Update the authenticated user's profile |
+| `PATCH` | `/api/profile/update` | Update the authenticated user's profile |
 | `DELETE` | `/api/profile/delete` | Delete the authenticated user's profile |
 | `POST` | `/api/webhooks/clerk` | Handle Clerk webhook events (user created/updated/deleted) |
 
