@@ -9,7 +9,7 @@ services:
     image: rediscommander/redis-commander:latest
     restart: always
     environment:
-      - REDIS_HOSTS=local:redis:6379
+      - REDIS_HOSTS=local:topic_tracker_redis:6379
     ports:
       - "8081:8081"
     depends_on:
@@ -28,10 +28,11 @@ services:
     depends_on:
       - redis
 
-  worker:
+  # 1. The Heavy Lifter: Handles BERT and Scraping
+  worker-extraction:
     build: .
-    container_name: topic_tracker_worker
-    command: celery -A src.worker.celery_app worker --loglevel=info --pool=prefork --concurrency=${CELERY_CONCURRENCY:-4} -Q extraction
+    container_name: topic_tracker_extraction_worker
+    command: celery -A src.worker.celery_app worker --loglevel=info --pool=prefork --concurrency=${CELERY_CONCURRENCY:-1} -Q extraction
     volumes:
       - .:/app
     env_file:
@@ -39,5 +40,31 @@ services:
     environment:
       HF_HUB_ENABLE_HF_TRANSFER: "1"
       TOKENIZERS_PARALLELISM: "true"
+      C_FORCE_ROOT: "true"
+    depends_on:
+      - redis
+
+  # 2. The Maintenance Pool: Handles SMTP Nudges and DB Purging
+  # This stays lightweight so it doesn't fight with BERT for RAM
+  worker-maintenance:
+    build: .
+    container_name: topic_tracker_maintenance_worker
+    command: celery -A src.worker.celery_app worker --loglevel=info -Q maintenance -c 1
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - redis
+
+  # 3. The Clock: Triggers the daily purge every 24 hours
+  celery-beat:
+    build: .
+    container_name: topic_tracker_beat
+    command: celery -A src.worker.celery_app beat --loglevel=info
+    volumes:
+      - .:/app
+    env_file:
+      - .env
     depends_on:
       - redis

@@ -1,73 +1,91 @@
 import numpy as np
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
+from datetime import datetime, timedelta
+
 from src.database import SessionLocal
-from src.models import Article, TopicTimeline
+from src.models import Article, TopicTimeline, Cluster, Subscription
 from src.extractor import extract_article_data
 from src.embeddings import get_text_embedding
-from src.worker import hand_to_summarizzer
-# --- 1.  Deduplication ---
+
+# --- 1. Deduplication (Hard Gate) ---
 def is_semantic_duplicate(db: Session, new_vector, threshold=0.95):
     """
-    Prevents the exact same story from being saved twice.
-    If similarity > 0.95, we treat it as a duplicate.
+    Checks the Article table for existing exact matches.
+    HNSW-accelerated via pgvector.
     """
-    # Using pgvector's <=> operator (cosine distance)
-    # Cosine Similarity = 1 - Cosine Distance
     duplicate = db.query(Article).filter(
         Article.vector.cosine_distance(new_vector) < (1 - threshold)
     ).first()
     return duplicate is not None
 
-# --- 2. THE SOFT GATE: Clustering ---
+# --- 2. O(log n) Clustering (Soft Gate) ---
 def find_best_cluster(db: Session, new_vector, threshold=0.70):
     """
-    Looks for a related "Leader" article to join its cluster.
+    HNSW search against the 'Centroids' in the Cluster table.
+    This is much faster than checking every article.
     """
-    match = db.query(
-        Article.cluster_id, 
-        (1 - Article.vector.cosine_distance(new_vector)).label('similarity')
-    ).filter(Article.cluster_id.isnot(None))\
-     .order_by(desc('similarity'))\
-     .first()
+    match = db.query(Cluster).filter(
+        Cluster.centroid_vector.cosine_distance(new_vector) < (1 - threshold)
+    ).order_by(Cluster.centroid_vector.cosine_distance(new_vector)).first()
 
-    if match and match.similarity >= threshold:
-        return match.cluster_id, match.similarity
-    return None, 0.0
+    if match:
+        return match.id
+    return None
 
-# --- 3. THE UTILITY: ID Generator ---
-def get_next_cluster_id(db: Session):
-    """Calculates the next available cluster ID for a new story."""
-    max_id = db.query(func.max(Article.cluster_id)).scalar()
-    return (max_id or 0) + 1
+# --- 3. Phase 2: Notification Dispatcher ---
+def notify_subscribers(db: Session, cluster_id: int, article_title: str):
+    
+    from src.worker import send_nudge
+    """
+    Identifies users who subscribed to this topic during a search.
+    Implements a 4-hour cooldown to prevent spam.
+    """
+    cooldown_limit = datetime.now() - timedelta(hours=4)
+    
+    subs = db.query(Subscription).filter(
+        Subscription.cluster_id == cluster_id,
+        Subscription.last_notified_at < cooldown_limit
+    ).all()
+
+    for sub in subs:
+        # Fire and forget SMTP nudge via Celery maintenance queue
+        send_nudge.delay(
+            sub.user_email, 
+            "Clusters updated. Visit the application now."
+        )
+        sub.last_notified_at = datetime.now()
+    
+    db.commit()
 
 # --- THE MAIN PIPELINE ---
 def process_new_url(url: str, source_name: str):
+    from src.worker import hand_to_summarizzer
     db = SessionLocal()
     try:
-        # Step 1: Extract
         data = extract_article_data(url, source_name)
         if not data:
             return "Extraction failed."
-
-        # Step 2: Vectorize
         content_to_vectorize = f"{data['title']} {data['full_text'][:500]}"
         vector = get_text_embedding(content_to_vectorize)
 
-        # Step 3: Deduplicate (Hard Gate)
+        # Deduplicate (Hard Gate)
         if is_semantic_duplicate(db, vector, threshold=0.95):
-            return f"Skipped: '{data['title']}' is a duplicate of an existing article."
+            return f"Skipped: '{data['title']}' is a duplicate."
 
-        # Step 4: Cluster (Soft Gate)
-        cluster_id, confidence = find_best_cluster(db, vector, threshold=0.70)
+        # Clustering (Soft Gate) via Centroids
+        cluster_id = find_best_cluster(db, vector, threshold=0.70)
         
         if cluster_id:
-            status = f"Joined cluster {cluster_id} (Similarity: {confidence:.2f})"
+            status = f"Joined existing cluster {cluster_id}"
         else:
-            cluster_id = get_next_cluster_id(db)
-            status = f"Started new cluster {cluster_id}"
+            new_cluster = Cluster(centroid_vector=vector)
+            db.add(new_cluster)
+            db.flush()
+            cluster_id = new_cluster.id
+            status = f"Created new cluster {cluster_id}"
 
-        # Step 5: Save
+        #  Save Article
         new_article = Article(
             title=data['title'],
             url=data['url'],
@@ -75,22 +93,26 @@ def process_new_url(url: str, source_name: str):
             source=data['source'],
             published=data['published'],
             vector=vector,
+            summary=None, # Filled later by summarizer
             credibility_score=data['credibility_score'],
             cluster_id=cluster_id
         )
-        
         db.add(new_article)
         db.flush() 
 
-        # Step 6: Timeline Record
+        # Timeline Record
         timeline_entry = TopicTimeline(
             article_id=new_article.id, 
             cluster_id=cluster_id
         )
         db.add(timeline_entry)
-        
+        # Finalize
         db.commit()
+        # Phase 2: Alert interested users
+        notify_subscribers(db, cluster_id, data['title'])
+        # Pass to summarizer worker
         hand_to_summarizzer(new_article.id)
+        
         return f"Success: {status} - '{data['title']}'"
 
     except Exception as e:
@@ -98,5 +120,3 @@ def process_new_url(url: str, source_name: str):
         return f"Error processing {url}: {e}"
     finally:
         db.close()
-
-
