@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+// Remove API_BASE for subscriptions, we will hit Next.js local API
 
 function formatDate(iso) {
   if (!iso) return "—"
@@ -36,7 +36,7 @@ export default function SubscriptionsPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch(`${API_BASE}/subscriptions/me`)
+        const res = await fetch(`/api/subscriptions/me`)
         const data = await res.json()
         setSubs(data || [])
         if (data?.length) setSelected(data[0])

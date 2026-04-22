@@ -25,7 +25,7 @@ frontend/
     │   │   │   ├── delete/
     │   │   │   │   └── route.js    # DELETE /api/profile — delete user profile
     │   │   │   └── update/
-    │   │   │       └── route.js    # PUT /api/profile — update user profile
+    │   │   │       └── route.js    # PATCH /api/profile — update user profile
     │   │   └── webhooks/
     │   │       └── clerk/
     │   │           └── route.js    # POST /api/webhooks/clerk — Clerk webhook handler
