@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 
 function formatDate(iso) {
   if (!iso) return "—"
@@ -73,7 +72,7 @@ export default function DashboardPage() {
     setError(null)
 
     try {
-      const res = await fetch(`${API_BASE}/articles/latest?limit=80`)
+      const res = await fetch(`/api/feed?limit=80`)
       if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`)
 
       const data = await res.json()
@@ -154,7 +153,7 @@ export default function DashboardPage() {
 
       setTimelineLoading(true)
       try {
-        const res = await fetch(`${API_BASE}/evolution/${selectedCluster}`)
+        const res = await fetch(`/api/evolution/${selectedCluster}`)
         if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`)
 
         const data = await res.json()

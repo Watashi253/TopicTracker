@@ -66,18 +66,38 @@ export default function NewsCard({ article }) {
         </span>
 
         {url && url !== "#" ? (
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950 transition hover:bg-sky-300"
-          >
-            Read original →
-          </a>
+          <div className="flex gap-2">
+            {article?.clusterId && (
+              <a
+                href={`/evolution/${article.clusterId}`}
+                className="inline-flex items-center rounded-full bg-violet-500/20 px-4 py-2 text-xs font-semibold text-violet-300 transition hover:bg-violet-500/30"
+              >
+                Evolution →
+              </a>
+            )}
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950 transition hover:bg-sky-300"
+            >
+              Read original →
+            </a>
+          </div>
         ) : (
-          <span className="inline-flex items-center rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-white/40">
-            No link
-          </span>
+          <div className="flex gap-2">
+            {article?.clusterId && (
+              <a
+                href={`/evolution/${article.clusterId}`}
+                className="inline-flex items-center rounded-full bg-violet-500/20 px-4 py-2 text-xs font-semibold text-violet-300 transition hover:bg-violet-500/30"
+              >
+                Evolution →
+              </a>
+            )}
+            <span className="inline-flex items-center rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-white/40">
+              No link
+            </span>
+          </div>
         )}
       </div>
     </article>

@@ -116,3 +116,44 @@ def get_topic_evolution(cluster_id: int, db: Session=Depends(get_db)):
         {"title": r[0], "source": r[1], "url": r[2], "arrived_at": r[3].isoformat()} 
         for r in results
     ]
+
+@app.get("/subscriptions/{email}")
+def get_subscriptions(email: str, db: Session = Depends(get_db)):
+    subs = db.query(Subscription).filter(Subscription.user_email == email).all()
+    
+    formatted_subs = []
+    for sub in subs:
+        articles = db.query(Article)\
+            .filter(Article.cluster_id == sub.cluster_id)\
+            .order_by(desc(Article.created_at))\
+            .limit(10)\
+            .all()
+            
+        topic_name = articles[0].title if articles else f"Topic {sub.cluster_id}"
+        sources = list(set([a.source for a in articles if a.source]))
+        
+        valid_scores = [float(a.credibility_score) for a in articles if a.credibility_score is not None]
+        avg_credibility = sum(valid_scores) / len(valid_scores) if valid_scores else 0.0
+        
+        formatted_articles = [
+            {
+                "id": a.id,
+                "title": a.title,
+                "summary": a.summary,
+                "source": a.source,
+                "url": a.url,
+                "created_at": a.created_at.isoformat() if a.created_at else None,
+                "credibility_score": float(a.credibility_score) if a.credibility_score is not None else 0.0
+            }
+            for a in articles
+        ]
+        
+        formatted_subs.append({
+            "cluster_id": sub.cluster_id,
+            "topic_name": topic_name,
+            "sources": sources,
+            "articles": formatted_articles,
+            "avg_credibility": avg_credibility
+        })
+        
+    return formatted_subs

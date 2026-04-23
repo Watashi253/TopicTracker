@@ -1,15 +1,17 @@
 # Application — Frontend
 
-A full-stack **Next.js** web application with MongoDB, Clerk authentication, and a news/feed-based UI.
+A full-stack **Next.js** web application acting as the primary user interface for the Topic Tracker system. It features a premium dynamic UI, Clerk authentication, and acts as an API Gateway to the `Database_and_bert_infra` (FastAPI + PostgreSQL) backend, while using MongoDB for localized user profile storage.
 
 ---
 
 ## Tech Stack
 
 - **Framework:** [Next.js](https://nextjs.org/) (App Router)
-- **Database:** MongoDB
+- **Primary Backend Integration:** FastAPI + PostgreSQL (via `Database_and_bert_infra`)
+- **Secondary Database:** MongoDB (strictly for Clerk user profile syncing)
 - **Authentication:** [Clerk](https://clerk.com/)
 - **Language:** JavaScript / JSX
+- **Styling:** Tailwind CSS (Premium Dark Mode with Glassmorphism)
 
 ---
 
@@ -21,11 +23,21 @@ frontend/
 └── src/
     ├── app/
     │   ├── api/
+    │   │   ├── evolution/
+    │   │   │   └── [cluster_id]/
+    │   │   │       └── route.js    # GET /api/evolution/[id] — proxy topic timeline
+    │   │   ├── feed/
+    │   │   │   └── route.js        # GET /api/feed — proxy latest articles
+    │   │   ├── search/
+    │   │   │   └── route.js        # GET /api/search — proxy semantic search
+    │   │   ├── subscriptions/
+    │   │   │   └── me/
+    │   │   │       └── route.js    # GET /api/subscriptions/me — proxy subscriptions
     │   │   ├── profile/
     │   │   │   ├── delete/
-    │   │   │   │   └── route.js    # DELETE /api/profile — delete user profile
+    │   │   │   │   └── route.js    # DELETE /api/profile/delete — delete user profile
     │   │   │   └── update/
-    │   │   │       └── route.js    # PATCH /api/profile — update user profile
+    │   │   │       └── route.js    # PATCH /api/profile/update — update user profile
     │   │   └── webhooks/
     │   │       └── clerk/
     │   │           └── route.js    # POST /api/webhooks/clerk — Clerk webhook handler
@@ -39,10 +51,12 @@ frontend/
     │   │   └── page.jsx            # /feed — news/content feed page
     │   ├── profile/
     │   │   └── page.jsx            # /profile — user profile page
-    │   ├── sign-in/[[...index]]/
-    │   │   └── page.jsx            # /sign-in — Clerk sign-in page
-    │   ├── sign-up/[[...index]]/
-    │   │   └── page.jsx            # /sign-up — Clerk sign-up page
+    │   ├── sign-in/
+    │   │   └── [[...index]]/
+    │   │       └── page.jsx        # /sign-in — Clerk sign-in page
+    │   ├── sign-up/
+    │   │   └── [[...index]]/
+    │   │       └── page.jsx        # /sign-up — Clerk sign-up page
     │   ├── subscriptions/
     │   │   └── page.jsx            # /subscriptions — manage subscriptions
     │   ├── track/
@@ -64,7 +78,8 @@ frontend/
 
 - **Node.js** v18+
 - **npm** or **yarn**
-- A **MongoDB** connection URI
+- **Database_and_bert_infra** backend running on `localhost:8000` (for core data)
+- A **MongoDB** connection URI (for user profiles)
 - A **Clerk** account with an application set up
 
 ### Installation
@@ -83,7 +98,7 @@ npm install
 Create a `.env.local` file in the `frontend/` directory with the following variables:
 
 ```env
-# MongoDB
+# MongoDB (User Profiles)
 MONGODB_URI=your_mongodb_connection_string
 MONGODB_DB=your_database_name
 
@@ -91,7 +106,8 @@ MONGODB_DB=your_database_name
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
 CLERK_SECRET_KEY=your_clerk_secret_key
 
-NEXT_PUBLIC_API_URL=http://localhost:<PORT>
+# Core API Gateway (Points to Database_and_bert_infra FastAPI server)
+NEXT_PUBLIC_API_URL=http://localhost:8000
 
 NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
 NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
@@ -121,11 +137,17 @@ npm start
 
 ## API Routes
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `PATCH` | `/api/profile/update` | Update the authenticated user's profile |
-| `DELETE` | `/api/profile/delete` | Delete the authenticated user's profile |
-| `POST` | `/api/webhooks/clerk` | Handle Clerk webhook events (user created/updated/deleted) |
+The frontend acts as an API gateway, abstracting backend complexities and securing requests using Clerk auth.
+
+| Method | Endpoint | Description | Backend Connected |
+|--------|----------|-------------|-------------------|
+| `GET` | `/api/feed` | Fetches the latest processed news articles | `Database_and_bert_infra` (FastAPI) |
+| `GET` | `/api/search` | Performs semantic search and auto-subscribes | `Database_and_bert_infra` (FastAPI) |
+| `GET` | `/api/subscriptions/me` | Fetches user's subscribed topic clusters | `Database_and_bert_infra` (FastAPI) |
+| `GET` | `/api/evolution/[id]` | Fetches the timeline of articles in a cluster | `Database_and_bert_infra` (FastAPI) |
+| `PATCH`| `/api/profile/update` | Update the authenticated user's profile | `MongoDB` (Local Profile DB) |
+| `DELETE`| `/api/profile/delete` | Delete the authenticated user's profile | `MongoDB` (Local Profile DB) |
+| `POST` | `/api/webhooks/clerk`| Handle Clerk webhook events (sync users) | `MongoDB` (Local Profile DB) |
 
 ---
 
@@ -134,28 +156,23 @@ npm start
 | Route | Description |
 |-------|-------------|
 | `/` | Homepage / landing page |
-| `/dashboard` | Main dashboard after login |
-| `/feed` | News/content feed |
+| `/dashboard` | Main dashboard tracking story clusters and timelines |
+| `/feed` | Live news/content feed |
 | `/profile` | User profile view and management |
-| `/subscriptions` | Manage user subscriptions |
-| `/track` | Content/item tracking page |
+| `/subscriptions` | View active topic subscriptions |
+| `/track` | Semantic search and new topic tracking |
 | `/sign-in` | Clerk-powered sign-in |
 | `/sign-up` | Clerk-powered sign-up |
 
 ---
 
-## Authentication
+## Authentication & Database Strategy
 
-This project uses **Clerk** for authentication. Sign-in and sign-up pages use Clerk's catch-all routing (`[[...index]]`). The `/api/webhooks/clerk` route listens for Clerk events to sync user data with MongoDB.
+### User Management
+This project uses **Clerk** for authentication. The `/api/webhooks/clerk` route listens for Clerk events to sync minimal user metadata (like usernames and profile image URLs) with **MongoDB**. MongoDB is strictly isolated to user profile management.
 
 Make sure to configure your Clerk webhook endpoint in the [Clerk dashboard](https://dashboard.clerk.com/) pointing to:
+`https://yourdomain.com/api/webhooks/clerk`
 
-```
-https://yourdomain.com/api/webhooks/clerk
-```
-
----
-
-## Database
-
-MongoDB is used as the primary database. The connection is managed in `src/lib/mongodb.js`, which exports a reusable client. User-related queries and helpers are located in `src/lib/users.js`.
+### Core Application Data
+All core application logic—such as news articles, clustering, semantic search, and topic timelines—is handled exclusively by the **`Database_and_bert_infra`** backend. The Next.js API routes act as proxies, attaching necessary `userId` parameters from Clerk, and forwarding requests to the FastAPI backend running on PostgreSQL `pgvector`.
