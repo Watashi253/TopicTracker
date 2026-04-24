@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+// Remove API_BASE for subscriptions, we will hit Next.js local API
 
 function formatDate(iso) {
   if (!iso) return "—"
@@ -36,7 +36,7 @@ export default function SubscriptionsPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch(`${API_BASE}/subscriptions/me`)
+        const res = await fetch(`/api/subscriptions/me`)
         const data = await res.json()
         setSubs(data || [])
         if (data?.length) setSelected(data[0])
@@ -108,12 +108,24 @@ export default function SubscriptionsPage() {
             <>
               {/* HEADER */}
               <div className="mb-8">
-                <p className="text-xs uppercase tracking-[0.28em] text-violet-300">
-                  Tracking
-                </p>
-                <h1 className="mt-2 text-4xl font-semibold tracking-tight">
-                  {selected.topic_name || selected.title}
-                </h1>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.28em] text-violet-300">
+                      Tracking
+                    </p>
+                    <h1 className="mt-2 text-4xl font-semibold tracking-tight flex items-center gap-4">
+                      {selected.topic_name || selected.title}
+                      {selected.cluster_id && (
+                        <a
+                          href={`/evolution/${selected.cluster_id}`}
+                          className="inline-flex items-center rounded-full bg-violet-500/20 px-4 py-2 text-sm font-semibold text-violet-300 transition hover:bg-violet-500/30"
+                        >
+                          View Evolution →
+                        </a>
+                      )}
+                    </h1>
+                  </div>
+                </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
                   {(selected.sources || []).map((s) => (

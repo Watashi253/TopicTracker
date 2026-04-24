@@ -6,6 +6,13 @@ from datetime import datetime, timedelta
 from src.database import SessionLocal
 from src.models import Article
 from celery.schedules import crontab
+import smtplib
+import os
+from email.mime.text import MIMEText
+import smtplib
+import os
+from email.mime.text import MIMEText
+
 load_dotenv()
 REDIS_URL = f"redis://{os.getenv('REDIS_HOST')}:{os.getenv('REDIS_PORT')}/0"
 celery_app = Celery("tasks", broker=REDIS_URL, backend=REDIS_URL)
@@ -57,3 +64,34 @@ celery_app.conf.beat_schedule = {
         "options": {"queue": "maintenance"}     
     },
 }
+
+@celery_app.task(name="tasks.send_nudge", queue="maintenance")
+def send_nudge(email: str, subject: str, body: str | None = None):
+    """
+    Phase 2: SMTP Relay
+    Sends a simple 'Visit App' nudge to the user.
+    """
+    sender_email = os.getenv("SMTP_SENDER")
+    sender_password = os.getenv("SMTP_PASSWORD")
+    
+    # Default message if none provided
+    if not body:
+        body = "Clusters updated. Visit the application now to see the latest developments."
+
+    msg = MIMEText(body)
+    msg['Subject'] = f"{subject}"
+    msg['From'] = f"Topic Tracker <{sender_email}>"
+    msg['To'] = email
+
+    try:
+        # Connect to Gmail's SMTP server
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls() # Secure the connection
+            server.login(sender_email or "", sender_password or "")
+            server.send_message(msg)
+        return f"SUCCESS: Nudge sent to {email}"
+    
+    except Exception as e:
+        # We log the error but don't stop the worker
+        print(f"SMTP ERROR for {email}: {str(e)}")
+        return f"FAILED: {str(e)}"

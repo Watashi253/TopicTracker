@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import NewsCard from "../components/NewsCard"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+// Remove API_BASE for feed, we will hit Next.js local API
 
 function SkeletonCard() {
   return (
@@ -55,7 +55,7 @@ export default function FeedPage() {
     setError(null)
 
     try {
-      const res = await fetch(`${API_BASE}/articles/latest?limit=60`)
+      const res = await fetch(`/api/feed?limit=60`)
       if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`)
 
       const data = await res.json()

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import NewsCard from "../components/NewsCard"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+// API_BASE removed, we hit local Next.js API
 
 function SkeletonCard() {
   return (
@@ -30,21 +30,22 @@ function StatCard({ label, value }) {
 
 export default function TrackPage() {
   const [articles, setArticles] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [query, setQuery] = useState("")
   const [submittedQuery, setSubmittedQuery] = useState("")
 
-  const fetchArticles = async () => {
+  const fetchArticles = async (q) => {
+    if (!q) return;
     setLoading(true)
     setError(null)
 
     try {
-      const res = await fetch(`${API_BASE}/articles/latest?limit=50`)
+      const res = await fetch(`/api/search?query=${encodeURIComponent(q)}`)
       if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`)
 
       const data = await res.json()
-      setArticles(Array.isArray(data) ? data : [])
+      setArticles(Array.isArray(data.results) ? data.results : [])
     } catch {
       setError("Failed to load topic results from the database.")
     } finally {
@@ -53,20 +54,10 @@ export default function TrackPage() {
   }
 
   useEffect(() => {
-    fetchArticles()
-  }, [])
+    if (submittedQuery) fetchArticles(submittedQuery)
+  }, [submittedQuery])
 
-  const filtered = useMemo(() => {
-    const q = submittedQuery.trim().toLowerCase()
-    if (!q) return articles
-
-    return articles.filter((a) => {
-      const title = (a.title ?? "").toLowerCase()
-      const summary = (a.summary ?? "").toLowerCase()
-      const source = (a.source ?? "").toLowerCase()
-      return title.includes(q) || summary.includes(q) || source.includes(q)
-    })
-  }, [articles, submittedQuery])
+  const filtered = articles; // Results are already filtered by the backend
 
   const topSources = useMemo(() => {
     const count = new Map()
