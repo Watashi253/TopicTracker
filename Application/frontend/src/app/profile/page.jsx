@@ -120,7 +120,7 @@ export default async function ProfilePage() {
           {/* Right — Info Cards */}
           <div className="grid gap-4 sm:grid-cols-2">
             <InfoCard
-              label="Clerk User ID"
+              label="User ID"
               value={clerkUserId}
               readonly
               hint="Cannot be changed"
