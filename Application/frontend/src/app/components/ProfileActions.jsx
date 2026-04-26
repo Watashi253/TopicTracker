@@ -2,11 +2,10 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { useClerk } from "@clerk/nextjs"
+import { signOut } from "next-auth/react"
 
 export default function ProfileActions({ initialName, initialUsername }) {
   const router = useRouter()
-  const { signOut } = useClerk()
 
   const [showEdit, setShowEdit] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -62,7 +61,7 @@ export default function ProfileActions({ initialName, initialUsername }) {
       }
 
       // Sign out and redirect after deletion
-      await signOut({ redirectUrl: "/" })
+      await signOut({ callbackUrl: "/" })
     } catch {
       setError("Network error. Please try again.")
       setDeleting(false)
@@ -70,7 +69,7 @@ export default function ProfileActions({ initialName, initialUsername }) {
   }
 
   async function handleSignOut() {
-    await signOut({ redirectUrl: "/" })
+    await signOut({ callbackUrl: "/" })
   }
 
   return (
@@ -179,7 +178,7 @@ export default function ProfileActions({ initialName, initialUsername }) {
           <div className="w-full max-w-md rounded-3xl border border-red-500/20 bg-[#0f172a] p-8 shadow-2xl">
             <h2 className="text-xl font-semibold text-white">Delete Account?</h2>
             <p className="mt-2 text-sm text-slate-400">
-              This will permanently remove your account from both Clerk and the database. 
+              This will permanently remove your account from the database. 
               <span className="text-red-400 font-medium"> This cannot be undone.</span>
             </p>
 

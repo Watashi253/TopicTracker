@@ -1,47 +1,23 @@
-import { auth, currentUser } from "@clerk/nextjs/server"
+import { getServerSession } from "next-auth"
+import { authOptions } from "../api/auth/[...nextauth]/route"
 import { redirect } from "next/navigation"
-import { getUserByClerkId } from "@/lib/users"
+import { getUserByEmail } from "@/lib/users"
 import ProfileActions from "@/app/components/ProfileActions"
 
 export default async function ProfilePage() {
-  const { userId } = await auth()
+  const session = await getServerSession(authOptions)
 
-  if (!userId) {
+  if (!session?.user?.email) {
     redirect("/sign-in")
   }
 
-  let clerkUser = null
-  try {
-    clerkUser = await currentUser()
-  } catch (error) {
-    console.error("Failed to load Clerk user:", error)
-  }
-
-  const dbUser = await getUserByClerkId(userId)
+  const dbUser = await getUserByEmail(session.user.email)
   const safeDbUser = dbUser ? JSON.parse(JSON.stringify(dbUser)) : null
 
-  const name =
-    safeDbUser?.name ||
-    [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ") ||
-    clerkUser?.fullName ||
-    "User"
-
-  const email =
-    safeDbUser?.email ||
-    clerkUser?.emailAddresses?.[0]?.emailAddress ||
-    "—"
-
-  const username =
-    safeDbUser?.username ||
-    clerkUser?.username ||
-    "—"
-
-  const imageUrl =
-    safeDbUser?.imageUrl ||
-    clerkUser?.imageUrl ||
-    ""
-
-  const clerkUserId = safeDbUser?.clerkUserId || userId
+  const name = safeDbUser?.name || session.user.name || "User"
+  const email = safeDbUser?.email || session.user.email || "—"
+  const username = safeDbUser?.username || "—"
+  const imageUrl = safeDbUser?.imageUrl || session.user.image || ""
 
   // Format dates — show both date and time clearly
   const createdAt = safeDbUser?.createdAt
@@ -63,7 +39,6 @@ export default async function ProfilePage() {
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.18),_transparent_28%),linear-gradient(to_bottom,#020617,#0f172a_55%,#111827)] px-6 py-10 text-white">
       <section className="mx-auto max-w-6xl">
-
         {/* Header */}
         <div className="mb-8">
           <p className="text-sm font-medium uppercase tracking-[0.25em] text-sky-300">
@@ -72,7 +47,6 @@ export default async function ProfilePage() {
           <h1 className="mt-3 text-4xl font-semibold tracking-tight">
             Your account details
           </h1>
-
           {/* Sync status badge */}
           {isSynced ? (
             <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-400">
@@ -82,13 +56,12 @@ export default async function ProfilePage() {
           ) : (
             <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-xs font-medium text-amber-400">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-              Not yet in database — webhook may be pending
+              Not yet in database
             </span>
           )}
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-
           {/* Left — Avatar + Actions */}
           <div className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
             <div className="flex flex-col items-center text-center">
@@ -96,7 +69,7 @@ export default async function ProfilePage() {
                 <img
                   src={imageUrl}
                   alt="Profile"
-                  className="h-28 w-28 rounded-full object-cover ring-4 ring-white/10"
+                  className="h-28 w-28 rounded-full object-cover ring-4 ring-white/10 bg-slate-800"
                 />
               ) : (
                 <div className="flex h-28 w-28 items-center justify-center rounded-full bg-sky-500/20 ring-4 ring-white/10 text-3xl font-bold text-sky-300">
@@ -109,7 +82,6 @@ export default async function ProfilePage() {
             </div>
 
             <div className="mt-6">
-              {/* Pass current values so edit form is pre-filled */}
               <ProfileActions
                 initialName={name === "User" ? "" : name}
                 initialUsername={username === "—" ? "" : username}
@@ -119,18 +91,7 @@ export default async function ProfilePage() {
 
           {/* Right — Info Cards */}
           <div className="grid gap-4 sm:grid-cols-2">
-            <InfoCard
-              label="User ID"
-              value={clerkUserId}
-              readonly
-              hint="Cannot be changed"
-            />
-            <InfoCard
-              label="Email"
-              value={email}
-              readonly
-              hint="Cannot be changed"
-            />
+            <InfoCard label="Email" value={email} readonly hint="Cannot be changed" />
             <InfoCard label="Name" value={name} />
             <InfoCard label="Username" value={username} />
             <InfoCard

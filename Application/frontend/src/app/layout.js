@@ -1,4 +1,4 @@
-import { ClerkProvider } from "@clerk/nextjs"
+import ClientProvider from "./components/ClientProvider"
 import { Geist, Geist_Mono } from "next/font/google"
 import "./globals.css"
 import Navbar from "./components/Navbar"
@@ -20,13 +20,13 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <ClerkProvider>
-      <html lang="en">
-        <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+    <html lang="en">
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        <ClientProvider>
           <Navbar />
           {children}
-        </body>
-      </html>
-    </ClerkProvider>
+        </ClientProvider>
+      </body>
+    </html>
   )
 }

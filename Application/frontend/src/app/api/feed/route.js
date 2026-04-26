@@ -5,7 +5,7 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get("limit") || "60");
 
-    const DB_API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const DB_API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8003";
     const res = await fetch(`${DB_API}/articles/latest?limit=${limit}`);
 
     if (!res.ok) {
@@ -13,7 +13,7 @@ export async function GET(request) {
     }
 
     const data = await res.json();
-    
+
     // Data is already in the right format from api.py 
     // Format: {id, title, url, summary, source, credibility_score, cluster_id, created_at}
     return NextResponse.json(data);

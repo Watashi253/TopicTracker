@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useUser } from "@clerk/nextjs"
+import { useSession, signOut } from "next-auth/react"
 
 const navItems = [
   { label: "Home", href: "/" },
@@ -14,7 +14,9 @@ const navItems = [
 
 export default function Navbar() {
   const pathname = usePathname()
-  const { user, isSignedIn } = useUser()
+  const { data: session, status } = useSession()
+  const isSignedIn = status === "authenticated"
+  const user = session?.user
 
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-black/70 backdrop-blur-xl">
@@ -58,12 +60,12 @@ export default function Navbar() {
               className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 backdrop-blur hover:bg-white/10 transition"
             >
               <img
-                src={user?.imageUrl}
+                src={user?.image || "https://api.dicebear.com/7.x/avataaars/svg?seed=fallback"}
                 alt="profile"
                 className="h-8 w-8 rounded-full object-cover"
               />
               <span className="hidden text-sm text-white sm:block">
-                {user?.firstName}
+                {user?.name || "User"}
               </span>
             </Link>
           )}
