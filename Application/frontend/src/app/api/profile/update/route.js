@@ -1,11 +1,12 @@
-import { auth } from "@clerk/nextjs/server"
+import { getServerSession } from "next-auth"
+import { authOptions } from "../../auth/[...nextauth]/route"
 import { NextResponse } from "next/server"
 import { getDb } from "@/lib/mongodb"
 
 export async function PATCH(req) {
-  const { userId } = await auth()
+  const session = await getServerSession(authOptions)
 
-  if (!userId) {
+  if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
@@ -16,7 +17,7 @@ export async function PATCH(req) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
   }
 
-  // Only allow editing these fields — never clerkUserId or email
+  // Only allow editing these fields — never email
   const allowedFields = ["name", "username"]
   const updates = {}
 
@@ -38,7 +39,7 @@ export async function PATCH(req) {
   try {
     const db = await getDb()
     const result = await db.collection("users").findOneAndUpdate(
-      { clerkUserId: userId },
+      { email: session.user.email },
       { $set: updates },
       { returnDocument: "after" }
     )
@@ -51,7 +52,6 @@ export async function PATCH(req) {
   } catch (err) {
     console.error("❌ Profile update failed:", err)
 
-    // Handle duplicate username
     if (err.code === 11000) {
       const field = Object.keys(err.keyPattern || {})[0] || "field"
       return NextResponse.json(

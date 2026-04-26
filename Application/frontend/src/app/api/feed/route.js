@@ -13,7 +13,7 @@ export async function GET(request) {
     }
 
     const data = await res.json();
-    
+
     // Data is already in the right format from api.py 
     // Format: {id, title, url, summary, source, credibility_score, cluster_id, created_at}
     return NextResponse.json(data);

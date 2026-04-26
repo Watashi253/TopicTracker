@@ -1,7 +1,7 @@
 "use client"
 
+import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { useUser } from "@clerk/nextjs"
 import {
   Bell,
   Brain,
@@ -66,7 +66,9 @@ const flow = [
 ];
 
 export default function Home() {
-  const { isSignedIn } = useUser()
+  const { data: session, status } = useSession();
+  const isSignedIn = status === "authenticated";
+
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.18),_transparent_28%),linear-gradient(to_bottom,#020617,#0f172a_55%,#111827)] text-white">
       <section className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 py-8 lg:px-10">
@@ -294,7 +296,7 @@ export default function Home() {
 
           <div className="rounded-3xl border border-sky-400/20 bg-gradient-to-br from-sky-400/15 to-cyan-400/10 p-7 backdrop-blur">
             <p className="text-sm font-medium uppercase tracking-[0.25em] text-sky-200">
-              Ready for Clerk auth
+              Ready for auth
             </p>
             <h3 className="mt-3 text-2xl font-semibold text-white">
               Personalize every topic, alert, and dashboard

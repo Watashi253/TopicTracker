@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getServerSession } from "next-auth"
+import { authOptions } from "../auth/[...nextauth]/route"
 
 export async function GET(request) {
   try {
@@ -10,9 +11,8 @@ export async function GET(request) {
       return NextResponse.json({ error: "Query parameter is required" }, { status: 400 });
     }
 
-    const { userId } = auth();
-    // Fallback email if no userId is available via Clerk during testing
-    const userEmail = userId ? `${userId}@example.com` : "test@example.com";
+    const session = await getServerSession(authOptions);
+    const userEmail = session?.user?.email || "test@example.com";
 
     // Perform semantic search via Database and Bert Infra (wait for it)
     const DB_API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";

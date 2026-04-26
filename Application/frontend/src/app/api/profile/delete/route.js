@@ -1,30 +1,21 @@
-import { auth, clerkClient } from "@clerk/nextjs/server"
+import { getServerSession } from "next-auth"
+import { authOptions } from "../../auth/[...nextauth]/route"
 import { NextResponse } from "next/server"
-import { deleteUserByClerkId } from "@/lib/users"
+import { deleteUserByEmail } from "@/lib/users"
 
 export async function DELETE() {
-  const { userId } = await auth()
+  const session = await getServerSession(authOptions)
 
-  if (!userId) {
+  if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
   try {
-    // Delete from Clerk first
-    const client = await clerkClient()
-    await client.users.deleteUser(userId)
-  } catch (err) {
-    console.error("❌ Failed to delete from Clerk:", err)
-    return NextResponse.json({ error: "Failed to delete from Clerk" }, { status: 500 })
-  }
-
-  try {
     // Delete from MongoDB
-    await deleteUserByClerkId(userId)
+    await deleteUserByEmail(session.user.email)
   } catch (err) {
     console.error("❌ Failed to delete from MongoDB:", err)
-    // User already deleted from Clerk, log but continue
-    return NextResponse.json({ error: "Deleted from Clerk but failed on DB" }, { status: 500 })
+    return NextResponse.json({ error: "Failed to delete user" }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true })
