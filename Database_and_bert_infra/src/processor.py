@@ -93,7 +93,7 @@ def process_new_url(url: str, source_name: str):
             source=data['source'],
             published=data['published'],
             vector=vector,
-            summary=None, # Filled later by summarizer
+            summary="Summary pending.",
             credibility_score=data['credibility_score'],
             cluster_id=cluster_id
         )

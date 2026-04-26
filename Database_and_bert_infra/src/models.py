@@ -26,7 +26,7 @@ class Article(Base):
     source: Mapped[str] = mapped_column(Text)
     published: Mapped[datetime] = mapped_column(TIMESTAMP)
     vector: Mapped[list] = mapped_column(Vector(384))
-    summary: Mapped[str] = mapped_column(Text)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     credibility_score: Mapped[float] = mapped_column(Float)
     cluster_id: Mapped[int] = mapped_column(Integer, ForeignKey('clusters.id', ondelete="CASCADE"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
