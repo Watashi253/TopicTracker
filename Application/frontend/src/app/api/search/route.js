@@ -24,6 +24,13 @@ export async function GET(request) {
 
     const searchData = await searchRes.json();
 
+    // Trigger data ingestion to fetch from all sources (fire and forget)
+    // We don't await this so the UI doesn't block while fetching from RSS/Twitter/GDELT
+    const INGESTION_API = process.env.DATA_INGESTION_URL || "http://localhost:8002";
+    fetch(`${INGESTION_API}/fetch/all?query=${encodeURIComponent(query)}`).catch(err => {
+      console.error("Failed to trigger data ingestion:", err);
+    });
+
     return NextResponse.json(searchData);
   } catch (error) {
     console.error("Search API Error:", error);
