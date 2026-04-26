@@ -7,7 +7,7 @@ export async function GET(request) {
     const session = await getServerSession(authOptions);
     const userEmail = session?.user?.email || "test@example.com";
 
-    const DB_API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8003";
+    const DB_API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
     // Fetch subscriptions directly from the Database_and_bert_infra API
     const res = await fetch(`${DB_API}/subscriptions/${encodeURIComponent(userEmail)}`);

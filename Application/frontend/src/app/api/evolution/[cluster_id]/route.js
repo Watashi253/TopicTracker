@@ -8,7 +8,7 @@ export async function GET(request, { params }) {
       return NextResponse.json({ error: "Cluster ID parameter is required" }, { status: 400 });
     }
 
-    const DB_API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8003";
+    const DB_API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     const evolutionRes = await fetch(`${DB_API}/evolution/${cluster_id}`, {
       cache: "no-store",
     });

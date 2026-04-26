@@ -15,7 +15,7 @@ export async function GET(request) {
     const userEmail = session?.user?.email || "test@example.com";
 
     // Perform semantic search via Database and Bert Infra (wait for it)
-    const DB_API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8003";
+    const DB_API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     const searchRes = await fetch(`${DB_API}/search?query=${encodeURIComponent(query)}&email=${encodeURIComponent(userEmail)}`);
 
     if (!searchRes.ok) {
