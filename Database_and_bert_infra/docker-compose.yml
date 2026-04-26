@@ -17,6 +17,7 @@ services:
 
   api:
     build: .
+    image: topic_tracker_base_worker
     container_name: topic_tracker_api
     command: uvicorn src.api:app --host 0.0.0.0 --port 8000
     volumes:
@@ -30,7 +31,7 @@ services:
 
   # 1. The Heavy Lifter: Handles BERT and Scraping
   worker-extraction:
-    build: .
+    image: topic_tracker_base_worker
     container_name: topic_tracker_extraction_worker
     command: celery -A src.worker.celery_app worker --loglevel=info --pool=prefork --concurrency=${CELERY_CONCURRENCY:-1} -Q extraction
     volumes:
@@ -43,11 +44,12 @@ services:
       C_FORCE_ROOT: "true"
     depends_on:
       - redis
+      - api
 
   # 2. The Maintenance Pool: Handles SMTP Nudges and DB Purging
   # This stays lightweight so it doesn't fight with BERT for RAM
   worker-maintenance:
-    build: .
+    image: topic_tracker_base_worker
     container_name: topic_tracker_maintenance_worker
     command: celery -A src.worker.celery_app worker --loglevel=info -Q maintenance -c 1
     volumes:
@@ -56,10 +58,11 @@ services:
       - .env
     depends_on:
       - redis
+      - api
 
   # 3. The Clock: Triggers the daily purge every 24 hours
   celery-beat:
-    build: .
+    image: topic_tracker_base_worker
     container_name: topic_tracker_beat
     command: celery -A src.worker.celery_app beat --loglevel=info
     volumes:
@@ -68,3 +71,4 @@ services:
       - .env
     depends_on:
       - redis
+      - api

@@ -17,6 +17,7 @@ services:
 
   ingestion-api:
     build: ./Data_Ingestion
+    image: topic_tracker_ingestion_base
     container_name: ingestion_api
     ports:
       - "8002:8002"
@@ -30,24 +31,26 @@ services:
     restart: unless-stopped
 
   ingestion-worker:
-    build: ./Data_Ingestion
+    image: topic_tracker_ingestion_base
     container_name: ingestion_worker
     command: >
       celery -A app.tasks worker
         --loglevel=info
-        --concurrency=4
+        --concurrency=1
         -Q reuters,bbc,ap,aljazeera,twitter,gdelt,reddit
     environment:
       - REDIS_URL=redis://redis:6379/0
     depends_on:
       redis:
         condition: service_healthy
+      ingestion-api:
+        condition: service_started
     networks:
       - topic_tracker
     restart: unless-stopped
 
   ingestion-beat:
-    build: ./Data_Ingestion
+    image: topic_tracker_ingestion_base
     container_name: ingestion_beat
     command: >
       celery -A app.tasks beat
@@ -57,6 +60,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      ingestion-api:
+        condition: service_started
     networks:
       - topic_tracker
     restart: unless-stopped
@@ -64,6 +69,7 @@ services:
 
   db-api:
     build: ./Database_and_bert_infra
+    image: topic_tracker_db_base
     container_name: topic_tracker_api
     command: uvicorn src.api:app --host 0.0.0.0 --port 8000
     ports:
@@ -82,13 +88,13 @@ services:
     restart: unless-stopped
 
   db-worker:
-    build: ./Database_and_bert_infra
+    image: topic_tracker_db_base
     container_name: topic_tracker_worker
     command: >
       celery -A src.worker.celery_app worker
         --loglevel=info
         --pool=prefork
-        --concurrency=4
+        --concurrency=1
         -Q extraction,maintenance
     env_file:
       - ./Database_and_bert_infra/.env
@@ -97,10 +103,12 @@ services:
       - REDIS_PORT=6379
       - REDIS_URL=redis://redis:6379/0
       - HF_HUB_ENABLE_HF_TRANSFER=1
-      - TOKENIZERS_PARALLELISM=true
+      - TOKENIZERS_PARALLELISM=false
     depends_on:
       redis:
         condition: service_healthy
+      db-api:
+        condition: service_started
     networks:
       - topic_tracker
     restart: unless-stopped
