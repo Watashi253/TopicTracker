@@ -60,18 +60,36 @@ def notify_subscribers(db: Session, cluster_id: int, article_title: str):
 
 # --- THE MAIN PIPELINE ---
 def process_new_url(url: str, source_name: str):
+    """
+    Full extraction pipeline: download → BERT embed → dedup → cluster → save → summarizer.
+    Returns a dict with: status ('success'|'skipped'|'error'), message, and cluster_id.
+    """
     from src.worker import hand_to_summarizzer
     db = SessionLocal()
     try:
+        # Fast URL-based dedup: if this URL is already in our DB, skip extraction entirely
+        existing_article = db.query(Article).filter(Article.url == url).first()
+        if existing_article:
+            return {
+                "status": "skipped", 
+                "message": f"URL already in DB: '{existing_article.title}'", 
+                "cluster_id": existing_article.cluster_id
+            }
+
         data = extract_article_data(url, source_name)
         if not data:
-            return "Extraction failed."
+            return {"status": "error", "message": "Extraction failed.", "cluster_id": None}
         content_to_vectorize = f"{data['title']} {data['full_text'][:500]}"
         vector = get_text_embedding(content_to_vectorize)
 
         # Deduplicate (Hard Gate)
         if is_semantic_duplicate(db, vector, threshold=0.95):
-            return f"Skipped: '{data['title']}' is a duplicate."
+            # Even though it's a duplicate, find which cluster it belongs to
+            existing = db.query(Article).filter(
+                Article.vector.cosine_distance(vector) < (1 - 0.95)
+            ).first()
+            dup_cluster_id = existing.cluster_id if existing else None
+            return {"status": "skipped", "message": f"Skipped: '{data['title']}' is a duplicate.", "cluster_id": dup_cluster_id}
 
         # Clustering (Soft Gate) via Centroids
         cluster_id = find_best_cluster(db, vector, threshold=0.70)
@@ -113,10 +131,10 @@ def process_new_url(url: str, source_name: str):
         # Pass to summarizer worker
         hand_to_summarizzer(new_article.id)
         
-        return f"Success: {status} - '{data['title']}'"
+        return {"status": "success", "message": f"Success: {status} - '{data['title']}'", "cluster_id": cluster_id}
 
     except Exception as e:
         db.rollback()
-        return f"Error processing {url}: {e}"
+        return {"status": "error", "message": f"Error processing {url}: {e}", "cluster_id": None}
     finally:
         db.close()

@@ -11,29 +11,43 @@ export async function GET(request) {
       return NextResponse.json({ error: "Query parameter is required" }, { status: 400 });
     }
 
-    const session = await getServerSession(authOptions);
-    const userEmail = session?.user?.email || "test@example.com";
+    // Get user email from session, fall back to test email
+    let userEmail = "test@example.com";
+    try {
+      const session = await getServerSession(authOptions);
+      if (session?.user?.email) {
+        userEmail = session.user.email;
+      }
+    } catch (sessionErr) {
+      console.warn("Session lookup failed, using default email:", sessionErr.message);
+    }
 
-    // Perform semantic search via Database and Bert Infra (wait for it)
     const DB_API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    const searchRes = await fetch(`${DB_API}/search?query=${encodeURIComponent(query)}&email=${encodeURIComponent(userEmail)}`);
+    const searchUrl = `${DB_API}/search?query=${encodeURIComponent(query)}&email=${encodeURIComponent(userEmail)}`;
+    
+    console.log(`[Search Route] Calling: ${searchUrl}`);
+
+    const searchRes = await fetch(searchUrl);
+
+    console.log(`[Search Route] Response status: ${searchRes.status}`);
 
     if (!searchRes.ok) {
+      const errorText = await searchRes.text();
+      console.error(`[Search Route] DB API error: ${errorText}`);
       throw new Error(`DB API search failed: ${searchRes.statusText}`);
     }
 
-    const searchData = await searchRes.json();
+    let searchData = await searchRes.json();
 
-    // Trigger data ingestion to fetch from all sources (fire and forget)
-    // We don't await this so the UI doesn't block while fetching from RSS/Twitter/GDELT
-    const INGESTION_API = process.env.DATA_INGESTION_URL || "http://localhost:8002";
-    fetch(`${INGESTION_API}/fetch/all?query=${encodeURIComponent(query)}`).catch(err => {
-      console.error("Failed to trigger data ingestion:", err);
-    });
+    console.log(`[Search Route] Got ${searchData?.results?.length || 0} results`);
+
+    // DB & BERT Infra's /search now internally calls Data Ingestion /fetch/all,
+    // processes articles through BERT, and returns enriched results.
+    // No need for a separate ingestion call here.
 
     return NextResponse.json(searchData);
   } catch (error) {
     console.error("Search API Error:", error);
-    return NextResponse.json({ error: "Failed to perform search" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to perform search", detail: error.message }, { status: 500 });
   }
 }

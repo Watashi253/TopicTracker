@@ -69,7 +69,7 @@ services:
 
   db-api:
     build: ./Database_and_bert_infra
-    image: topic_tracker_db_base
+    image: topic_tracker_base_worker
     container_name: topic_tracker_api
     command: uvicorn src.api:app --host 0.0.0.0 --port 8000
     ports:
@@ -80,6 +80,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_URL=redis://redis:6379/0
+      - INGESTION_BASE_URL=http://ingestion-api:8002
     depends_on:
       redis:
         condition: service_healthy
@@ -88,7 +89,7 @@ services:
     restart: unless-stopped
 
   db-worker:
-    image: topic_tracker_db_base
+    image: topic_tracker_base_worker
     container_name: topic_tracker_worker
     command: >
       celery -A src.worker.celery_app worker
@@ -124,6 +125,27 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    networks:
+      - topic_tracker
+    restart: unless-stopped
+
+  frontend:
+    build: 
+      context: ./Application/frontend
+      dockerfile: Dockerfile
+    container_name: topic_tracker_frontend
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./Application/frontend/.env
+    environment:
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=topic_tracker_nextauth_secret_local_dev_2024
+      # Route via Docker internal network for Server-Side proxying
+      - NEXT_PUBLIC_API_URL=http://db-api:8000
+      - DATA_INGESTION_URL=http://ingestion-api:8002
+    depends_on:
+      - db-api
     networks:
       - topic_tracker
     restart: unless-stopped

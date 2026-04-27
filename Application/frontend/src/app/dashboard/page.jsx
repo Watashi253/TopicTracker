@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react"
 
-
 function formatDate(iso) {
   if (!iso) return "—"
   const date = new Date(iso)
@@ -60,23 +59,21 @@ function SectionTitle({ eyebrow, title, description }) {
 }
 
 export default function DashboardPage() {
-  const [articles, setArticles] = useState([])
+  const [clusters, setClusters] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [selectedCluster, setSelectedCluster] = useState(null)
-  const [evolution, setEvolution] = useState([])
-  const [timelineLoading, setTimelineLoading] = useState(false)
 
-  const fetchArticles = async () => {
+  const fetchSubscriptions = async () => {
     setLoading(true)
     setError(null)
 
     try {
-      const res = await fetch(`/api/feed?limit=80`)
+      const res = await fetch(`/api/subscriptions/me`)
       if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`)
 
       const data = await res.json()
-      setArticles(Array.isArray(data) ? data : [])
+      setClusters(Array.isArray(data) ? data : [])
     } catch {
       setError("Unable to load dashboard data.")
     } finally {
@@ -85,118 +82,42 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    fetchArticles()
+    fetchSubscriptions()
   }, [])
-
-  const clusters = useMemo(() => {
-    const map = new Map()
-
-    for (const article of articles) {
-      const key = article.cluster_id ?? "unclustered"
-      if (!map.has(key)) map.set(key, [])
-      map.get(key).push(article)
-    }
-
-    return Array.from(map.entries())
-      .map(([id, items]) => {
-        const ordered = [...items].sort(
-          (a, b) =>
-            new Date(b.created_at ?? 0).getTime() -
-            new Date(a.created_at ?? 0).getTime()
-        )
-
-        const sources = Array.from(
-          new Set(items.map((a) => a.source).filter(Boolean))
-        )
-
-        const avgCredibility =
-          items.length > 0
-            ? (
-                items.reduce(
-                  (sum, item) => sum + Number(item.credibility_score ?? 0),
-                  0
-                ) / items.length
-              ).toFixed(2)
-            : "0.00"
-
-        return {
-          id,
-          items,
-          count: items.length,
-          title: ordered[0]?.title ?? "Untitled story",
-          latestAt: ordered[0]?.created_at ?? null,
-          sources,
-          avgCredibility,
-        }
-      })
-      .sort(
-        (a, b) =>
-          new Date(b.latestAt ?? 0).getTime() -
-          new Date(a.latestAt ?? 0).getTime()
-      )
-  }, [articles])
 
   useEffect(() => {
     if (!clusters.length) return
     if (selectedCluster === null) {
-      const firstReal = clusters.find((c) => c.id !== "unclustered") ?? clusters[0]
-      setSelectedCluster(firstReal?.id ?? null)
+      setSelectedCluster(clusters[0]?.cluster_id ?? null)
     }
   }, [clusters, selectedCluster])
-
-  useEffect(() => {
-    const loadEvolution = async () => {
-      if (!selectedCluster || selectedCluster === "unclustered") {
-        setEvolution([])
-        return
-      }
-
-      setTimelineLoading(true)
-      try {
-        const res = await fetch(`/api/evolution/${selectedCluster}`)
-        if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`)
-
-        const data = await res.json()
-        setEvolution(Array.isArray(data) ? data : [])
-      } catch {
-        setEvolution([])
-      } finally {
-        setTimelineLoading(false)
-      }
-    }
-
-    loadEvolution()
-  }, [selectedCluster])
 
   const selectedClusterData = useMemo(() => {
-    return clusters.find((c) => c.id === selectedCluster) ?? null
+    return clusters.find((c) => c.cluster_id === selectedCluster) ?? null
   }, [clusters, selectedCluster])
 
-  const selectedClusterArticles = useMemo(() => {
-    if (!selectedClusterData) return []
-    return [...selectedClusterData.items].sort(
-      (a, b) =>
-        new Date(b.created_at ?? 0).getTime() -
-        new Date(a.created_at ?? 0).getTime()
-    )
-  }, [selectedClusterData])
+  const trackedTopics = clusters.length
 
-  const totalArticles = articles.length
-  const trackedTopics = clusters.filter((c) => c.id !== "unclustered").length
+  const allArticles = useMemo(() => {
+    const list = []
+    for (const c of clusters) {
+      if (c.articles) list.push(...c.articles)
+    }
+    return list
+  }, [clusters])
+
+  const totalArticles = allArticles.length
 
   const avgCredibility = useMemo(() => {
-    if (!articles.length) return "—"
-    const total = articles.reduce(
-      (sum, item) => sum + Number(item.credibility_score ?? 0),
-      0
-    )
-    return (total / articles.length).toFixed(2)
-  }, [articles])
+    if (!allArticles.length) return "—"
+    const sum = allArticles.reduce((acc, item) => acc + Number(item.credibility_score ?? 0), 0)
+    return (sum / allArticles.length).toFixed(2)
+  }, [allArticles])
 
   const topSource = useMemo(() => {
     const count = new Map()
-    for (const article of articles) {
-      const src = article.source ?? "Unknown"
+    for (const a of allArticles) {
+      const src = a.source ?? "Unknown"
       count.set(src, (count.get(src) ?? 0) + 1)
     }
 
@@ -209,17 +130,13 @@ export default function DashboardPage() {
       }
     }
     return winner
-  }, [articles])
+  }, [allArticles])
 
   const latestArticles = useMemo(() => {
-    return [...articles]
-      .sort(
-        (a, b) =>
-          new Date(b.created_at ?? 0).getTime() -
-          new Date(a.created_at ?? 0).getTime()
-      )
+    return [...allArticles]
+      .sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
       .slice(0, 8)
-  }, [articles])
+  }, [allArticles])
 
   return (
     <main className="min-h-screen bg-[#06111f] text-white">
@@ -230,11 +147,10 @@ export default function DashboardPage() {
               Dashboard
             </p>
             <h1 className="mt-2 text-4xl font-semibold tracking-tight">
-              Topic activity overview
+              Your Topics Dashboard
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-400">
-              A compact control page for story clusters, article counts, credibility,
-              and topic evolution.
+              Your subscribed story clusters, article counts, and credibility — all in one place.
             </p>
           </div>
 
@@ -242,12 +158,12 @@ export default function DashboardPage() {
             <StatCard
               label="Articles"
               value={String(totalArticles)}
-              hint="Loaded from database"
+              hint="From your subscriptions"
             />
             <StatCard
               label="Topics"
               value={String(trackedTopics)}
-              hint="Clustered stories"
+              hint="Subscribed clusters"
             />
             <StatCard
               label="Credibility"
@@ -273,7 +189,7 @@ export default function DashboardPage() {
             <SectionTitle
               eyebrow="Tracked topics"
               title="Active clusters"
-              description="Select a topic to inspect its latest articles and how the story is developing."
+              description="Select a subscribed topic to inspect its latest articles."
             />
 
             <div className="mt-6 space-y-3">
@@ -286,11 +202,11 @@ export default function DashboardPage() {
                   ))
                 : clusters.length > 0
                 ? clusters.map((cluster) => {
-                    const active = cluster.id === selectedCluster
+                    const active = cluster.cluster_id === selectedCluster
                     return (
                       <button
-                        key={String(cluster.id)}
-                        onClick={() => setSelectedCluster(cluster.id)}
+                        key={String(cluster.cluster_id)}
+                        onClick={() => setSelectedCluster(cluster.cluster_id)}
                         className={`w-full rounded-3xl border p-4 text-left transition ${
                           active
                             ? "border-sky-400/40 bg-sky-400/10"
@@ -300,33 +216,32 @@ export default function DashboardPage() {
                         <div className="flex items-start justify-between gap-4">
                           <div className="min-w-0">
                             <p className="text-xs uppercase tracking-[0.24em] text-sky-300">
-                              Cluster {String(cluster.id)}
+                              Cluster {String(cluster.cluster_id)}
                             </p>
                             <h3 className="mt-2 line-clamp-2 text-base font-semibold text-white">
-                              {cluster.title}
+                              {cluster.topic_name}
                             </h3>
                           </div>
                           <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-white/75">
-                            {cluster.count}
+                            {cluster.articles?.length || 0}
                           </span>
                         </div>
 
                         <div className="mt-4 flex flex-wrap gap-2">
-                          {cluster.sources.slice(0, 3).map((source) => (
+                          {(cluster.sources || []).slice(0, 3).map((source) => (
                             <Badge key={source}>{source}</Badge>
                           ))}
                         </div>
 
                         <div className="mt-4 flex items-center justify-between text-xs text-slate-400">
-                          <span>Credibility {cluster.avgCredibility}</span>
-                          <span>{formatDate(cluster.latestAt)}</span>
+                          <span>Credibility {Number(cluster.avg_credibility || 0).toFixed(2)}</span>
                         </div>
                       </button>
                     )
                   })
                 : (
                   <div className="rounded-3xl border border-white/10 bg-slate-950/30 p-5 text-sm text-slate-300">
-                    No clusters available yet.
+                    No subscribed clusters yet. Search a topic to start tracking.
                   </div>
                 )}
             </div>
@@ -336,7 +251,7 @@ export default function DashboardPage() {
             <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6 shadow-2xl shadow-black/20 backdrop-blur">
               <SectionTitle
                 eyebrow="Selected topic"
-                title={selectedClusterData?.title ?? "Choose a cluster"}
+                title={selectedClusterData?.topic_name ?? "Choose a cluster"}
                 description="Core details for the currently selected story cluster."
               />
 
@@ -345,25 +260,62 @@ export default function DashboardPage() {
                   <div className="mt-6 grid gap-3 sm:grid-cols-3">
                     <StatCard
                       label="Articles"
-                      value={String(selectedClusterData.count)}
+                      value={String(selectedClusterData.articles?.length || 0)}
                       hint="In this cluster"
                     />
                     <StatCard
                       label="Sources"
-                      value={String(selectedClusterData.sources.length)}
+                      value={String(selectedClusterData.sources?.length || 0)}
                       hint="Unique publishers"
                     />
                     <StatCard
                       label="Credibility"
-                      value={selectedClusterData.avgCredibility}
+                      value={Number(selectedClusterData.avg_credibility || 0).toFixed(2)}
                       hint="Cluster average"
                     />
                   </div>
 
                   <div className="mt-5 flex flex-wrap gap-2">
-                    {selectedClusterData.sources.map((source) => (
+                    {(selectedClusterData.sources || []).map((source) => (
                       <Badge key={source}>{source}</Badge>
                     ))}
+                  </div>
+
+                  <div className="mt-8 space-y-3">
+                    <h3 className="text-sm font-medium uppercase tracking-[0.2em] text-slate-400">Latest Updates</h3>
+                    {selectedClusterData.articles?.length > 0 ? (
+                      selectedClusterData.articles.map((item) => (
+                        <div
+                          key={`${item.id || item.url}`}
+                          className="rounded-2xl border border-white/10 bg-slate-950/30 p-4"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="line-clamp-2 text-sm font-semibold text-white">
+                                {item.title}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-400">
+                                {item.source} · {formatDate(item.created_at)}
+                              </p>
+                            </div>
+                            {item.url ? (
+                              <a
+                                href={item.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="shrink-0 rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950 transition hover:bg-sky-300"
+                              >
+                                Open
+                              </a>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-2xl border border-white/10 bg-slate-950/30 p-5 text-sm text-slate-300">
+                        No articles available for this cluster.
+                      </div>
+                    )}
                   </div>
                 </>
               ) : (
@@ -372,65 +324,14 @@ export default function DashboardPage() {
                 </p>
               )}
             </div>
-
-            <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6 shadow-2xl shadow-black/20 backdrop-blur">
-              <SectionTitle
-                eyebrow="Story evolution"
-                title="Timeline"
-                description="The latest articles for this topic, ordered by arrival."
-              />
-
-              <div className="mt-6 space-y-3">
-                {timelineLoading ? (
-                  Array.from({ length: 4 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="h-16 animate-pulse rounded-2xl border border-white/10 bg-white/5"
-                    />
-                  ))
-                ) : evolution.length > 0 ? (
-                  evolution.map((item) => (
-                    <div
-                      key={`${item.url ?? item.title}-${item.arrived_at}`}
-                      className="rounded-2xl border border-white/10 bg-slate-950/30 p-4"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="line-clamp-2 text-sm font-semibold text-white">
-                            {item.title}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-400">
-                            {item.source} · {formatDate(item.arrived_at)}
-                          </p>
-                        </div>
-                        {item.url ? (
-                          <a
-                            href={item.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="rounded-full bg-sky-400 px-4 py-2 text-xs font-semibold text-slate-950 transition hover:bg-sky-300"
-                          >
-                            Open
-                          </a>
-                        ) : null}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="rounded-2xl border border-white/10 bg-slate-950/30 p-5 text-sm text-slate-300">
-                    Select a topic cluster to load its timeline.
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
         </div>
 
         <div className="mt-6 rounded-[2rem] border border-white/10 bg-white/5 p-6 shadow-2xl shadow-black/20 backdrop-blur">
           <SectionTitle
             eyebrow="Recent articles"
-            title="Latest processed updates"
-            description="A quick view of the newest items currently stored in the database."
+            title="Latest from your topics"
+            description="The newest items from your subscribed clusters."
           />
 
           <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">

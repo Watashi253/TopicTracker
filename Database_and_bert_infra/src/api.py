@@ -3,11 +3,21 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, update
 from src.database import get_db, Base, engine
 from src.models import Article, TopicTimeline, Cluster, Subscription
+from src.processor import process_new_url
 from typing import List, Optional
 from datetime import datetime
+import requests
+import os
+import logging
 
 # Assume your BERT model is initialized in processor.py
 from src.embeddings import model 
+
+logger = logging.getLogger(__name__)
+
+# Data Ingestion service URL
+# Default: localhost:8002 for local dev. Docker overrides via env var in docker-compose.yml
+INGESTION_BASE_URL = os.getenv("INGESTION_BASE_URL", "http://localhost:8002")
 
 app = FastAPI(
     title="News Article Processing API",
@@ -51,48 +61,125 @@ def search(
     db: Session = Depends(get_db)
 ):
     """
-    Phase 1: Query Receiving
-    - O(log n) search using HNSW on Cluster Centroids.
-    - Auto-subscription if Similarity > 0.85 (Distance < 0.15).
-    - Refreshes 'last_seen_at' for all articles in matched clusters.
+    Full search pipeline:
+      1. Search existing clusters via BERT cosine similarity
+      2. Fetch fresh articles from Data Ingestion service (:8002)
+      3. Process each fresh article through BERT pipeline (embed, dedup, cluster, save)
+      4. Merge all cluster IDs (existing + newly created)
+      5. Return all articles from the merged clusters
     """
+    print(f"\n{'='*60}")
+    print(f"[Search] New search request: query='{query}', email='{email}'")
+    print(f"[Search] Ingestion URL: {INGESTION_BASE_URL}")
+    print(f"{'='*60}")
+
     query_vector = model.encode(query).tolist()
 
+    # ── Step 1: Search existing clusters ─────────────────────────────────────
+    # Threshold 0.50 = similarity > 0.50. Relaxed because query vectors (short text)
+    # and cluster centroids (article vectors from full text) can differ significantly.
     matching_clusters = db.query(Cluster).filter(
-        Cluster.centroid_vector.cosine_distance(query_vector) < 0.15
+        Cluster.centroid_vector.cosine_distance(query_vector) < 0.50
     ).all()
 
-    cluster_ids = [c.id for c in matching_clusters]
+    cluster_ids = set(c.id for c in matching_clusters)
+    print(f"[Search] Step 1 — Found {len(cluster_ids)} existing clusters for query: '{query}'")
 
-    if not cluster_ids:
-        return {"message": "No matching topics found.", "results": []}
+    # ── Step 2: Fetch fresh articles from Data Ingestion ─────────────────────
+    raw_articles = []
+    ingestion_url = f"{INGESTION_BASE_URL}/fetch/all"
+    print(f"[Search] Step 2 — Calling ingestion: {ingestion_url}?query={query}&limit=25")
+    try:
+        resp = requests.get(
+            ingestion_url,
+            params={"query": query, "limit": 25},
+            timeout=60
+        )
+        print(f"[Search] Step 2 — Ingestion responded with status {resp.status_code}")
+        if resp.status_code == 200:
+            raw_articles = resp.json()
+            print(f"[Search] Step 2 — Got {len(raw_articles)} raw articles from ingestion")
+        else:
+            print(f"[Search] Step 2 — Ingestion error response: {resp.text[:200]}")
+    except Exception as e:
+        print(f"[Search] Step 2 — ❌ Ingestion service FAILED: {type(e).__name__}: {e}")
 
-    # 3. Phase 1: Subscription Logic
-    if email:
-        for c_id in cluster_ids:
-            existing = db.query(Subscription).filter_by(user_email=email, cluster_id=c_id).first()
-            if not existing:
-                db.add(Subscription(user_email=email, cluster_id=c_id))
-        db.commit()
+    # ── Step 3: Process each article through BERT pipeline ───────────────────
+    new_cluster_ids = set()
+    processed_count = 0
+    total_raw = len(raw_articles)
+    print(f"[Search] Step 3 — Processing {total_raw} articles through BERT pipeline...")
+    
+    for i, raw in enumerate(raw_articles):
+        url = raw.get("url", "")
+        source = raw.get("source_name", "unknown")
+        if not url:
+            continue
+        
+        try:
+            print(f"[Search] Step 3 — [{i+1}/{total_raw}] Processing: {url[:80]}...")
+            result = process_new_url(url, source)
+            cid = result.get("cluster_id")
+            status = result.get("status", "unknown")
+            if cid is not None:
+                new_cluster_ids.add(cid)
+                processed_count += 1
+            print(f"[Search] Step 3 — [{i+1}/{total_raw}] {status}: cluster_id={cid}")
+        except Exception as e:
+            print(f"[Search] Step 3 — [{i+1}/{total_raw}] ❌ Failed: {e}")
 
-    # 4. Refresh 'last_seen_at' (The Janitor Nudge)
-    # Instead of a loop, we use a bulk update for speed
+    print(f"[Search] Step 3 — Done. Processed {processed_count} articles, got {len(new_cluster_ids)} cluster IDs")
+
+    # ── Step 4: Merge all cluster IDs ────────────────────────────────────────
+    all_cluster_ids = list(cluster_ids | new_cluster_ids)
+    print(f"[Search] Step 4 — Merged cluster IDs: {all_cluster_ids}")
+
+    if not all_cluster_ids:
+        print(f"[Search] ⚠️  No clusters found at all. Returning empty.")
+        return {
+            "query": query,
+            "clusters_matched": 0,
+            "cluster_ids": [],
+            "subscribed": False,
+            "results": [],
+            "message": "No matching topics found from DB or ingestion."
+        }
+
+    # ── Refresh 'last_seen_at' (The Janitor Nudge) ───────────────────────────
     db.execute(
         update(Article)
-        .where(Article.cluster_id.in_(cluster_ids))
+        .where(Article.cluster_id.in_(all_cluster_ids))
         .values(last_seen_at=datetime.now())
     )
     db.commit()
 
-    # 5. Retrieve Articles from matched clusters
-    articles = db.query(Article).filter(Article.cluster_id.in_(cluster_ids)).all()
+    # ── Step 5: Retrieve ALL articles from merged clusters ───────────────────
+    articles = db.query(Article).filter(
+        Article.cluster_id.in_(all_cluster_ids)
+    ).order_by(
+        desc(Article.credibility_score), 
+        desc(Article.created_at)
+    ).all()
     
+    print(f"[Search] Step 5 — Returning {len(articles)} articles from {len(all_cluster_ids)} clusters")
+    print(f"{'='*60}\n")
+
     return {
         "query": query,
-        "clusters_matched": len(cluster_ids),
-        "subscribed": True if email else False,
+        "clusters_matched": len(all_cluster_ids),
+        "cluster_ids": all_cluster_ids,
+        "subscribed": False,
         "results": [
-            {"id": a.id, "title": a.title, "url": a.url, "source": a.source} 
+            {
+                "id": a.id, 
+                "title": a.title, 
+                "url": a.url, 
+                "source": a.source,
+                "summary": a.summary,
+                "credibility_score": float(a.credibility_score) if a.credibility_score is not None else 0.0,
+                "cluster_id": a.cluster_id,
+                "created_at": a.created_at.isoformat() if a.created_at is not None else None
+            } 
             for a in articles
         ]
     }
@@ -157,3 +244,38 @@ def get_subscriptions(email: str, db: Session = Depends(get_db)):
         })
         
     return formatted_subs
+
+
+# ── Subscribe / Unsubscribe endpoints ────────────────────────────────────────
+
+@app.post("/subscribe/{email}/{cluster_id}")
+def subscribe_to_cluster(email: str, cluster_id: int, db: Session = Depends(get_db)):
+    """Subscribe a user to a cluster."""
+    existing = db.query(Subscription).filter_by(user_email=email, cluster_id=cluster_id).first()
+    if existing:
+        return {"status": "already_subscribed", "message": f"Already subscribed to cluster {cluster_id}"}
+    
+    db.add(Subscription(user_email=email, cluster_id=cluster_id))
+    db.commit()
+    print(f"[Subscribe] {email} subscribed to cluster {cluster_id}")
+    return {"status": "subscribed", "message": f"Subscribed to cluster {cluster_id}"}
+
+
+@app.delete("/unsubscribe/{email}/{cluster_id}")
+def unsubscribe_from_cluster(email: str, cluster_id: int, db: Session = Depends(get_db)):
+    """Unsubscribe a user from a cluster."""
+    sub = db.query(Subscription).filter_by(user_email=email, cluster_id=cluster_id).first()
+    if not sub:
+        return {"status": "not_found", "message": f"No subscription found for cluster {cluster_id}"}
+    
+    db.delete(sub)
+    db.commit()
+    print(f"[Unsubscribe] {email} unsubscribed from cluster {cluster_id}")
+    return {"status": "unsubscribed", "message": f"Unsubscribed from cluster {cluster_id}"}
+
+
+@app.get("/subscribed-cluster-ids/{email}")
+def get_subscribed_cluster_ids(email: str, db: Session = Depends(get_db)):
+    """Return just the list of cluster IDs a user is subscribed to (for toggle state)."""
+    subs = db.query(Subscription).filter(Subscription.user_email == email).all()
+    return {"cluster_ids": [s.cluster_id for s in subs]}

@@ -73,7 +73,7 @@ def summarizer_task(payload: dict):
         if len(text_to_process) < 50:
             logger.warning(f"[Summarizer] Article {article_id} text too short. Skipping.")
             return
-        if article.summary:
+        if article.summary and article.summary not in ["Summary pending.", "Summary pending"]:
             logger.info(f"[Summarizer] Article {article_id} already has a summary. Skipping.")
             return
         try:
@@ -86,7 +86,7 @@ def summarizer_task(payload: dict):
         article.summary = medium_summary
         
         db.commit()
-        logger.info(f"[Summarizer] Done: '{short_title}'")
+        logger.info(f"[Summarizer] Done with article {article_id}")
 
     except Exception as e:
         db.rollback()

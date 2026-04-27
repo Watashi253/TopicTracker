@@ -39,7 +39,7 @@ def _call_bart(text: str, max_length: int, min_length: int) -> str:
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            with httpx.Client(timeout=60) as client:
+            with httpx.Client(timeout=180) as client:
                 resp = client.post(settings.HF_BART_URL, headers=_HEADERS, json=payload)
 
             if resp.status_code == 503:
@@ -59,6 +59,14 @@ def _call_bart(text: str, max_length: int, min_length: int) -> str:
                 return result[0].get("summary_text", "").strip()
 
             raise ValueError(f"Unexpected HF response shape: {result}")
+
+        except httpx.ReadTimeout:
+            logger.warning(
+                "[HF] Read timeout (attempt %d/%d). Retrying in %ds…",
+                attempt, MAX_RETRIES, RETRY_DELAY,
+            )
+            time.sleep(RETRY_DELAY)
+            continue
 
         except httpx.HTTPStatusError as exc:
             raise RuntimeError(f"HF API HTTP error {exc.response.status_code}") from exc
