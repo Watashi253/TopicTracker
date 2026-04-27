@@ -113,6 +113,21 @@ services:
       - topic_tracker
     restart: unless-stopped
 
+  summarizer-worker:
+    build: ./Bart_Summarisation/news-pipeline
+    image: topic_tracker_summarizer_base
+    container_name: topic_tracker_summarizer_worker
+    env_file:
+      - ./Bart_Summarisation/.env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - topic_tracker
+    restart: unless-stopped
+
 volumes:
   redis_data:
 

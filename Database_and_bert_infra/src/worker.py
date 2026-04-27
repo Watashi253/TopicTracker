@@ -52,7 +52,7 @@ def purge_stale_content():
         db.close()
 def hand_to_summarizzer(article_id: int):
     try:
-        celery_app.send_task("app.tasks.send_summarizer", args=[{"article_id": article_id}])
+        celery_app.send_task("app.tasks.send_summarizer", args=[{"article_id": article_id}], queue="summarizer")
         print(f"[Worker] Handed article {article_id} to summarizer.")
     except Exception as e:
         print(f"[Worker] Failed to send article {article_id} to summarizer: {e}")   
