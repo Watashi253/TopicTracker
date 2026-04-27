@@ -9,6 +9,7 @@ class SourceType(str, Enum):
     REDDIT  = "reddit"
     TWITTER = "twitter"
     GDELT   = "gdelt"
+    WEB     = "web"
 
 
 class RawArticle(BaseModel):

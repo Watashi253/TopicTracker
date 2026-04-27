@@ -246,6 +246,39 @@ def _add_to_beat_schedule(query: str):
 
 
 
+@celery_app.task(queue="maintenance", name="app.tasks.send_cluster_alerts")
+def send_cluster_alerts_task(cluster_id: int, article_data: dict):
+    """
+    Celery task to send email alerts to all users subscribed to a cluster.
+    Called by Database_and_bert_infra when a new article is added to a cluster.
+    
+    Args:
+        cluster_id: ID of the cluster
+        article_data: Dictionary with article info {id, title, url, source, summary, credibility_score}
+    """
+    from app.alerts.email_alert import send_cluster_alerts
+    
+    try:
+        # Import database session
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from app.config import DATABASE_URL
+        
+        engine = create_engine(DATABASE_URL)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        
+        sent_count = send_cluster_alerts(db, cluster_id, article_data)
+        print(f"[send_cluster_alerts_task] Sent {sent_count} alerts for cluster {cluster_id}")
+        
+        db.close()
+        return sent_count
+        
+    except Exception as e:
+        print(f"[send_cluster_alerts_task] Error: {e}")
+        return 0
+
+
 celery_app.conf.beat_schedule = {
 
     "fetch-reuters": {

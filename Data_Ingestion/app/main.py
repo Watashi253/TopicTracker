@@ -1,24 +1,38 @@
 import asyncio
+import os
 import sys
 from pathlib import Path
 from typing import Optional
 
+import redis
 import uvicorn
+from celery import Celery
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel
 
 
 if __name__ == "__main__" and __package__ is None:
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from app.adapters.rss     import fetch_rss
-from app.adapters.twitter import search_twitter, fetch_user_tweets
-from app.adapters.gdelt   import search_gdelt, fetch_gdelt_timeline
-from app.models.models    import RawArticle
+from app.adapters.rss          import fetch_rss
+from app.adapters.twitter      import search_twitter, fetch_user_tweets
+from app.adapters.gdelt        import search_gdelt, fetch_gdelt_timeline
+from app.adapters.google_news  import search_google_news
+from app.models.models         import RawArticle
+
+load_dotenv()
+
+# ── Celery / Redis for the /track endpoint ──────────────────────────────────
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+celery_app = Celery("ingestion", broker=REDIS_URL, backend=REDIS_URL)
+r = redis.Redis.from_url(REDIS_URL)
+
 
 app = FastAPI(
     title       = "Article Ingestion API",
-    description = "Unified ingestion layer for RSS, Twitter/X and GDELT",
-    version     = "2.0"
+    description = "Unified ingestion layer for RSS, Twitter/X, GDELT and Google News",
+    version     = "2.1"
 )
 
 RSS_SOURCES = {
@@ -28,6 +42,16 @@ RSS_SOURCES = {
     "aljazeera": "https://www.aljazeera.com/xml/rss/all.xml",
 }
 
+
+# ── Request body for POST /track ────────────────────────────────────────────
+class TrackRequest(BaseModel):
+    url:         str
+    source_name: str = "web"
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  RSS
+# ────────────────────────────────────────────────────────────────────────────
 
 @app.get(
     "/fetch/rss/all",
@@ -70,6 +94,10 @@ async def fetch_single_rss(source: str):
     result = await loop.run_in_executor(None, fetch_rss, RSS_SOURCES[source], source)
     return result
 
+
+# ────────────────────────────────────────────────────────────────────────────
+#  Twitter
+# ────────────────────────────────────────────────────────────────────────────
 
 @app.get(
     "/fetch/twitter",
@@ -118,6 +146,10 @@ async def fetch_twitter_user(
     result = await loop.run_in_executor(None, fetch_user_tweets, username, limit)
     return result
 
+
+# ────────────────────────────────────────────────────────────────────────────
+#  GDELT
+# ────────────────────────────────────────────────────────────────────────────
 
 @app.get(
     "/fetch/gdelt",
@@ -170,6 +202,34 @@ async def fetch_gdelt_volume_timeline(
     return result
 
 
+# ────────────────────────────────────────────────────────────────────────────
+#  Google News
+# ────────────────────────────────────────────────────────────────────────────
+
+@app.get(
+    "/fetch/google-news",
+    response_model = list[RawArticle],
+    summary        = "Scrape top Google News articles for a query",
+    tags           = ["Google News"]
+)
+async def fetch_google_news(
+    query: str = Query(..., description="Topic to search for on Google News"),
+    limit: int = Query(default=6, le=15, description="Max results (default 6)"),
+):
+    """
+    Scrapes Google News search results using BeautifulSoup.
+    Returns top articles with title, URL, snippet, and publisher info.
+    No API key required — parses the HTML directly.
+    """
+    loop   = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, search_google_news, query, limit)
+    return result
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  Unified fetch (all sources including Google News)
+# ────────────────────────────────────────────────────────────────────────────
+
 @app.get(
     "/fetch/all",
     response_model = list[RawArticle],
@@ -181,7 +241,7 @@ async def fetch_all_sources(
     limit: int = Query(default=25, le=100, description="Max results per source"),
 ):
     """
-    Fetches from RSS (all feeds) + Twitter + GDELT simultaneously
+    Fetches from RSS (all feeds) + Twitter + GDELT + Google News simultaneously
     for a given query and returns one unified list of RawArticle objects.
 
     All articles share the same schema regardless of source.
@@ -193,10 +253,11 @@ async def fetch_all_sources(
         loop.run_in_executor(None, fetch_rss, url, name)
         for name, url in RSS_SOURCES.items()
     ]
-    twitter_task = loop.run_in_executor(None, search_twitter, query, limit, "en", None)
-    gdelt_task   = loop.run_in_executor(None, search_gdelt, query, limit, "HybridRel", "1week", "English")
+    twitter_task     = loop.run_in_executor(None, search_twitter, query, limit, "en", None)
+    gdelt_task       = loop.run_in_executor(None, search_gdelt, query, limit, "HybridRel", "1week", "English")
+    google_news_task = loop.run_in_executor(None, search_google_news, query, 6)
 
-    all_tasks = rss_tasks + [twitter_task, gdelt_task]
+    all_tasks = rss_tasks + [twitter_task, gdelt_task, google_news_task]
     results   = await asyncio.gather(*all_tasks, return_exceptions=True)
 
     articles = []
@@ -206,6 +267,102 @@ async def fetch_all_sources(
         articles.extend(result)
 
     return articles
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  Discover (Google News first, then everything else — for Track page)
+# ────────────────────────────────────────────────────────────────────────────
+
+@app.get(
+    "/fetch/discover",
+    response_model = list[RawArticle],
+    summary        = "Discover articles: Google News + all other sources",
+    tags           = ["Unified"]
+)
+async def fetch_discover(
+    query: str = Query(..., description="Topic to discover articles for"),
+    limit: int = Query(default=25, le=100, description="Max results per source"),
+):
+    """
+    The discover endpoint for the Track Topic page.
+    Combines Google News scraping with all other source fetches.
+    Google News results appear first (marked source_name='google_news'),
+    followed by RSS, Twitter, and GDELT results.
+    """
+    loop = asyncio.get_event_loop()
+
+    # Google News — top 6
+    google_task = loop.run_in_executor(None, search_google_news, query, 6)
+
+    # RSS feeds
+    rss_tasks = [
+        loop.run_in_executor(None, fetch_rss, url, name)
+        for name, url in RSS_SOURCES.items()
+    ]
+
+    # Twitter + GDELT
+    twitter_task = loop.run_in_executor(None, search_twitter, query, limit, "en", None)
+    gdelt_task   = loop.run_in_executor(None, search_gdelt, query, limit, "HybridRel", "1week", "English")
+
+    all_tasks = [google_task] + rss_tasks + [twitter_task, gdelt_task]
+    results   = await asyncio.gather(*all_tasks, return_exceptions=True)
+
+    articles = []
+    for result in results:
+        if isinstance(result, Exception):
+            print(f"[Discover] One source failed: {result}")
+            continue
+        articles.extend(result)
+
+    return articles
+
+
+# ────────────────────────────────────────────────────────────────────────────
+#  Track — send a single article to the extraction queue
+# ────────────────────────────────────────────────────────────────────────────
+
+@app.post(
+    "/track",
+    summary = "Send an article to the extraction pipeline",
+    tags    = ["Track"]
+)
+async def track_article(body: TrackRequest):
+    """
+    Accepts a single article URL + source_name and pushes it
+    into the Celery extraction queue for full processing
+    (newspaper3k → BERT embed → dedup → cluster → BART summary → DB).
+
+    Uses the same 'seen_urls' Redis set to avoid duplicate submissions.
+    """
+    url         = body.url.strip()
+    source_name = body.source_name.strip() or "web"
+
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
+
+    # Check if already queued / processed
+    if r.sismember("seen_urls", url):
+        return {
+            "status":  "already_queued",
+            "message": f"This URL has already been sent for processing.",
+            "url":     url,
+        }
+
+    # Mark as seen and enqueue
+    r.sadd("seen_urls", url)
+    celery_app.send_task(
+        "tasks.perform_extraction",
+        args=[url, source_name],
+        queue="extraction",
+        routing_key="extraction",
+    )
+
+    return {
+        "status":  "queued",
+        "message": f"Article sent to extraction pipeline.",
+        "url":     url,
+        "source":  source_name,
+    }
 
 
 
